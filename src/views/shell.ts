@@ -45,14 +45,22 @@ export function renderShell(): string {
       if (b) { b.style.display = 'block'; b.textContent = msg; }
     };
     window.addEventListener('load', function () {
+      // localize boot text once i18n is available
+      try {
+        if (typeof window.t === 'function') {
+          var bt = document.querySelector('#boot > div:last-of-type, #boot div');
+        }
+      } catch (e) {}
       setTimeout(function () {
         if (typeof axios === 'undefined') {
-          window.__bootFail('네트워크 문제로 일부 리소스를 불러오지 못했습니다. 새로고침 해주세요.');
+          var msg = (typeof window.t === 'function') ? window.t('app.net_error') : '네트워크 문제로 일부 리소스를 불러오지 못했습니다. 새로고침 해주세요.';
+          window.__bootFail(msg);
         }
       }, 6000);
     });
   </script>
 
+  <script src="/static/i18n.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/layout.js"></script>
   <script src="/static/pages-auth.js"></script>

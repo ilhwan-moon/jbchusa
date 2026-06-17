@@ -36,7 +36,8 @@ function openModal(contentEl, opts = {}) {
 }
 function closeModal() { el('modal-root').innerHTML = ''; }
 
-function loadingHtml(text = '불러오는 중...') {
+function loadingHtml(text) {
+  if (text == null) text = (typeof t === 'function') ? t('common.loading') : '불러오는 중...';
   return `<div class="flex items-center justify-center py-20 text-slate-400"><i class="fas fa-circle-notch spin text-2xl mr-3"></i>${text}</div>`;
 }
 
@@ -46,16 +47,22 @@ function avatar(photo, first, last, size = 'w-10 h-10') {
 }
 
 const CATEGORY_META = {
-  PARISH:     { icon:'fa-map-location-dot', color:'text-blue-600', label:'교구구역' },
-  FELLOWSHIP: { icon:'fa-people-group',     color:'text-purple-600', label:'교제부서' },
-  SCHOOL:     { icon:'fa-graduation-cap',   color:'text-amber-600', label:'교회학교' },
-  MINISTRY:   { icon:'fa-hands-praying',    color:'text-emerald-600', label:'봉사부서' },
-  STAFF:      { icon:'fa-briefcase',        color:'text-slate-600', label:'직원' },
+  PARISH:     { icon:'fa-map-location-dot', color:'text-blue-600', labelKey:'cat.PARISH' },
+  FELLOWSHIP: { icon:'fa-people-group',     color:'text-purple-600', labelKey:'cat.FELLOWSHIP' },
+  SCHOOL:     { icon:'fa-graduation-cap',   color:'text-amber-600', labelKey:'cat.SCHOOL' },
+  MINISTRY:   { icon:'fa-hands-praying',    color:'text-emerald-600', labelKey:'cat.MINISTRY' },
+  STAFF:      { icon:'fa-briefcase',        color:'text-slate-600', labelKey:'cat.STAFF' },
 };
+// localized category label helper
+function catLabel(code) {
+  const m = CATEGORY_META[code];
+  return m && m.labelKey ? t(m.labelKey) : code;
+}
 
 function statusBadge(status) {
   const map = { '활동':'bg-emerald-100 text-emerald-700','휴면':'bg-amber-100 text-amber-700','이전':'bg-slate-100 text-slate-600','사망':'bg-slate-200 text-slate-500' };
-  return `<span class="badge ${map[status]||'bg-slate-100 text-slate-600'}">${esc(status)}</span>`;
+  const label = (typeof t === 'function') ? t('status.' + status) : status;
+  return `<span class="badge ${map[status]||'bg-slate-100 text-slate-600'}">${esc(label)}</span>`;
 }
 
 /* ---------- auth bootstrap ---------- */
@@ -95,11 +102,11 @@ async function router() {
       case 'members': return Pages.memberDetail(content, r.sub[0]);
       case 'households': return Pages.households(content, r.sub[0]);
       case 'admin': return Pages.admin(content, r.sub[0] || 'users');
-      default: content.innerHTML = '<div class="p-8 text-center text-slate-400">페이지를 찾을 수 없습니다.</div>';
+      default: content.innerHTML = `<div class="p-8 text-center text-slate-400">${t('common.none_found')}</div>`;
     }
   } catch (e) {
     console.error(e);
-    content.innerHTML = `<div class="p-8 text-center text-red-500">오류가 발생했습니다: ${esc(e.message)}</div>`;
+    content.innerHTML = `<div class="p-8 text-center text-red-500">${t('common.error_occurred')} ${esc(e.message)}</div>`;
   }
 }
 
@@ -127,6 +134,11 @@ function hideBoot() {
 
 /* ---------- start ---------- */
 (async function start() {
+  // localize boot loading text now that i18n is available
+  try {
+    const bootText = document.querySelector('#boot div:not(.ring)');
+    if (bootText && typeof t === 'function') bootText.textContent = t('app.booting');
+  } catch (e) {}
   try {
     await loadMe();
   } catch (e) {
