@@ -105,9 +105,35 @@ async function router() {
 
 window.addEventListener('hashchange', router);
 
+/* ---------- lazy Chart.js loader (so slow CDN never blocks app boot) ---------- */
+let __chartPromise = null;
+function ensureChart() {
+  if (typeof Chart !== 'undefined') return Promise.resolve(true);
+  if (__chartPromise) return __chartPromise;
+  __chartPromise = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+  return __chartPromise;
+}
+
+function hideBoot() {
+  const b = el('boot');
+  if (b) { b.style.opacity = '0'; setTimeout(() => b.remove(), 300); }
+}
+
 /* ---------- start ---------- */
 (async function start() {
-  await loadMe();
+  try {
+    await loadMe();
+  } catch (e) {
+    console.error('init failed', e);
+  } finally {
+    hideBoot();
+  }
   if (!location.hash) location.hash = App.state.user ? '#/dashboard' : '#/login';
   router();
 })();

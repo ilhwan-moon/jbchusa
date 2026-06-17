@@ -51,22 +51,26 @@ async function attendanceDashboard(content) {
       </div>
     </div>`;
 
-  // trend chart
-  new Chart(el('trend-chart'), {
-    type: 'line',
-    data: {
-      labels: d.trend.map((t)=>t.d?.slice(5)||''),
-      datasets: [{ label:'출석', data:d.trend.map((t)=>t.present), borderColor:'#1e6fd9', backgroundColor:'rgba(30,111,217,.1)', fill:true, tension:.3 },
-                 { label:'전체', data:d.trend.map((t)=>t.total), borderColor:'#cbd5e1', borderDash:[4,4], fill:false, tension:.3 }] },
-    options: { responsive:true, plugins:{legend:{display:true, labels:{boxWidth:12}}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }
-  });
-  // status doughnut
-  new Chart(el('status-chart'), {
-    type: 'doughnut',
-    data: { labels: d.statusDist.map((s)=>STATUS_LABEL[s.status]||s.status),
-      datasets:[{ data:d.statusDist.map((s)=>s.n), backgroundColor:['#10b981','#f87171','#fbbf24','#60a5fa','#fb923c'] }] },
-    options: { responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
-  });
+  // charts (Chart.js lazy-loaded; if CDN unavailable, charts are simply skipped)
+  const chartReady = await ensureChart();
+  if (chartReady && el('trend-chart')) {
+    new Chart(el('trend-chart'), {
+      type: 'line',
+      data: {
+        labels: d.trend.map((t)=>t.d?.slice(5)||''),
+        datasets: [{ label:'출석', data:d.trend.map((t)=>t.present), borderColor:'#1e6fd9', backgroundColor:'rgba(30,111,217,.1)', fill:true, tension:.3 },
+                   { label:'전체', data:d.trend.map((t)=>t.total), borderColor:'#cbd5e1', borderDash:[4,4], fill:false, tension:.3 }] },
+      options: { responsive:true, plugins:{legend:{display:true, labels:{boxWidth:12}}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }
+    });
+    new Chart(el('status-chart'), {
+      type: 'doughnut',
+      data: { labels: d.statusDist.map((s)=>STATUS_LABEL[s.status]||s.status),
+        datasets:[{ data:d.statusDist.map((s)=>s.n), backgroundColor:['#10b981','#f87171','#fbbf24','#60a5fa','#fb923c'] }] },
+      options: { responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
+    });
+  } else if (!chartReady) {
+    ['trend-chart','status-chart'].forEach((id)=>{ const c=el(id); if(c) c.replaceWith(h('<div class="text-sm text-slate-400 py-8 text-center">차트를 불러올 수 없습니다.</div>')); });
+  }
 }
 
 function statCard(label, icon, color, value) {

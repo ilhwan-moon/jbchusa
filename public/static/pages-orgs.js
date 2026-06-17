@@ -8,10 +8,13 @@ Pages.orgs = async function (content, sub0, sub1) {
   const meta = CATEGORY_META[cat] || { icon:'fa-folder', color:'text-slate-600', label:cat };
   const selectedGroup = sub1 ? parseInt(sub1, 10) : null;
 
+  const canManage = hasPerm('org.manage');
+  const addLabelMap = { PARISH:'교구/구역 등록', FELLOWSHIP:'부서 등록', SCHOOL:'부서/반 등록', MINISTRY:'팀 등록', STAFF:'조직 등록' };
   content.innerHTML = `
     <div class="mb-4 flex items-center gap-3">
       <div class="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center ${meta.color}"><i class="fas ${meta.icon} text-xl"></i></div>
-      <div><h2 class="text-xl font-bold text-slate-800">${meta.label}</h2><p class="text-sm text-slate-500">조직별 교인을 조회합니다.</p></div>
+      <div class="flex-1"><h2 class="text-xl font-bold text-slate-800">${meta.label}</h2><p class="text-sm text-slate-500">조직별 교인을 조회합니다.</p></div>
+      ${canManage?`<button onclick="addOrgGroup('${cat}')" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap"><i class="fas fa-plus mr-1"></i>${addLabelMap[cat]||'조직 등록'}</button>`:''}
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div class="lg:col-span-1">
@@ -104,4 +107,70 @@ function memberCardHtml(m) {
     </div>
     <i class="fas fa-chevron-right text-slate-300 text-xs"></i>
   </a>`;
+}
+
+/* ---- create a new org group, scoped to a category (교구/교제부서/교회학교/봉사부서 등록) ---- */
+async function addOrgGroup(categoryCode, defaults) {
+  defaults = defaults || {};
+  const [{ data: cd }, { data: gd }] = await Promise.all([
+    api.get('/orgs/categories'),
+    api.get('/orgs/groups', { params: { category: categoryCode } }),
+  ]);
+  const cat = (cd.categories || []).find((c) => c.code === categoryCode);
+  if (!cat) { toast('분류를 찾을 수 없습니다.', 'error'); return; }
+
+  // category-specific level types
+  const levelMap = {
+    PARISH: ['교구', '구역', '조'],
+    FELLOWSHIP: ['부서', '팀', '기타'],
+    SCHOOL: ['부서', '반', '기타'],
+    MINISTRY: ['팀', '부서', '기타'],
+    STAFF: ['부서', '팀', '기타'],
+  };
+  const levels = levelMap[categoryCode] || ['기타'];
+  const meta = CATEGORY_META[categoryCode] || {};
+  const parentOpts = '<option value="">(최상위)</option>' +
+    (gd.groups || []).map((g) => `<option value="${g.group_id}" ${defaults.parent_id==g.group_id?'selected':''}>${esc(g.name)} (${esc(g.level_type)})</option>`).join('');
+
+  const box = h(`<div class="p-6">
+    <h3 class="text-lg font-bold mb-1"><i class="fas ${meta.icon||'fa-folder'} ${meta.color||''} mr-2"></i>${esc(cat.name)} 등록</h3>
+    <p class="text-sm text-slate-500 mb-4">${esc(cat.description||'')}</p>
+    <form id="og-form" class="space-y-3">
+      <div><label class="block text-xs font-semibold text-slate-600 mb-1">조직명 *</label>
+        <input name="name" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="예: 1교구 / 청년부 / 초등 3학년반 / 찬양팀" /></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">구분</label>
+          <select name="level_type" class="w-full px-3 py-2.5 border rounded-lg">${levels.map((l)=>`<option ${defaults.level_type===l?'selected':''}>${l}</option>`).join('')}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">정렬순서</label>
+          <input name="sort_order" type="number" value="0" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-600 mb-1">상위 조직</label>
+        <select name="parent_id" class="w-full px-3 py-2.5 border rounded-lg">${parentOpts}</select></div>
+      <div><label class="block text-xs font-semibold text-slate-600 mb-1">담당 지역 / 설명 (선택)</label>
+        <input name="service_area" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${categoryCode==='PARISH'?'City / ZIP 권역':'설명'}" /></div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">취소</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">등록</button>
+      </div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#og-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api.post('/admin/groups', {
+        category_id: cat.category_id,
+        name: fd.get('name'),
+        level_type: fd.get('level_type'),
+        parent_id: fd.get('parent_id') || null,
+        service_area: fd.get('service_area') || null,
+        sort_order: parseInt(fd.get('sort_order') || '0', 10),
+      });
+      closeModal();
+      toast('조직이 등록되었습니다.', 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || '등록 실패', 'error');
+    }
+  });
 }
