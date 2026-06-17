@@ -1,11 +1,17 @@
 {
-  "name": "webapp",
+  "name": "jbchusa-cms",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "wrangler pages dev",
-    "deploy": "npm run build && wrangler pages deploy",
+    "dev:sandbox": "wrangler pages dev dist --d1=jbchusa-production --local --ip 0.0.0.0 --port 3000",
+    "preview": "wrangler pages dev dist",
+    "deploy": "npm run build && wrangler pages deploy dist",
+    "deploy:prod": "npm run build && wrangler pages deploy dist --project-name jbchusa-cms",
+    "db:migrate:local": "wrangler d1 migrations apply jbchusa-production --local",
+    "db:migrate:prod": "wrangler d1 migrations apply jbchusa-production",
+    "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local",
+    "db:console:local": "wrangler d1 execute jbchusa-production --local",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings"
   },
   "dependencies": {
