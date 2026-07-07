@@ -39,6 +39,43 @@ admin.get('/categories', async (c) => {
   return c.json({ categories: rows.results })
 })
 
+// ---- Google Calendar settings ----
+admin.get('/calendar', async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT calendar_id, service_account_json, timezone, is_enabled FROM admin_calendar_settings WHERE church_id=1`
+  ).first<any>()
+  return c.json({
+    calendar: row || {
+      calendar_id: '',
+      service_account_json: '',
+      timezone: 'America/Los_Angeles',
+      is_enabled: 0,
+    },
+  })
+})
+
+admin.put('/calendar', async (c) => {
+  const b = await c.req.json<any>()
+  const payload = {
+    calendar_id: b.calendar_id || null,
+    service_account_json: b.service_account_json || null,
+    timezone: b.timezone || 'America/Los_Angeles',
+    is_enabled: b.is_enabled ? 1 : 0,
+  }
+
+  await c.env.DB.prepare(
+    `INSERT INTO admin_calendar_settings (church_id, calendar_id, service_account_json, timezone, is_enabled, updated_at)
+     VALUES (1, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(church_id) DO UPDATE SET calendar_id=excluded.calendar_id,
+       service_account_json=excluded.service_account_json,
+       timezone=excluded.timezone,
+       is_enabled=excluded.is_enabled,
+       updated_at=datetime('now')`
+  ).bind(payload.calendar_id, payload.service_account_json, payload.timezone, payload.is_enabled).run()
+
+  return c.json({ ok: true })
+})
+
 // ---- Org groups management ----
 admin.post('/groups', async (c) => {
   const b = await c.req.json<any>()

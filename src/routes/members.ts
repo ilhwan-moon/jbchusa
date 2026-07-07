@@ -3,6 +3,133 @@ import type { Bindings, SessionUser } from '../lib/types'
 
 const members = new Hono<{ Bindings: Bindings; Variables: { user: SessionUser | null } }>()
 
+const getMemberName = (m: any) => (m?.korean_name || `${m?.first_name || ''} ${m?.last_name || ''}`.trim() || '');
+
+const fetchMemberBasic = async (c: any, id: number | string) => {
+  return await c.env.DB.prepare(
+    `SELECT member_id, first_name, last_name, korean_name, household_id, household_role,
+      use_own_address, address_line1, address_line2, city, state, zip_code
+     FROM members WHERE member_id = ?`
+  ).bind(id).first<any>();
+};
+
+const fetchPrimaryContact = async (c: any, memberId: number) => {
+  const row = await c.env.DB.prepare(
+    `SELECT value FROM member_contacts
+     WHERE member_id = ?
+     ORDER BY is_primary DESC,
+       CASE contact_type WHEN 'home' THEN 0 WHEN 'mobile' THEN 1 WHEN 'office' THEN 2 WHEN 'email' THEN 3 ELSE 9 END
+     LIMIT 1`
+  ).bind(memberId).first<any>();
+  return row?.value || null;
+};
+
+const pickHeadMemberId = (member: any, related: any, relationType: string) => {
+  if (['parent', 'spouse', 'sibling'].includes(relationType)) return related.member_id;
+  return member.member_id;
+};
+
+const mapHouseholdRoles = (relationType: string, headMemberId: number | null, memberId: number, relatedId: number) => {
+  const baseRoles: { memberRole: string; relatedRole: string } = { memberRole: 'relative', relatedRole: 'relative' };
+  switch (relationType) {
+    case 'spouse':
+      baseRoles.memberRole = 'spouse';
+      baseRoles.relatedRole = 'spouse';
+      break;
+    case 'parent':
+      baseRoles.memberRole = 'child';
+      baseRoles.relatedRole = 'parent';
+      break;
+    case 'child':
+      baseRoles.memberRole = 'parent';
+      baseRoles.relatedRole = 'child';
+      break;
+    case 'sibling':
+      baseRoles.memberRole = 'relative';
+      baseRoles.relatedRole = 'relative';
+      break;
+    case 'guardian':
+      baseRoles.memberRole = 'child';
+      baseRoles.relatedRole = 'relative';
+      break;
+    default:
+      baseRoles.memberRole = 'relative';
+      baseRoles.relatedRole = 'relative';
+      break;
+  }
+  if (headMemberId === memberId) baseRoles.memberRole = 'head';
+  if (headMemberId === relatedId) baseRoles.relatedRole = 'head';
+  return baseRoles;
+};
+
+const updateHouseholdFromHead = async (c: any, householdId: number, headMember: any) => {
+  const headName = getMemberName(headMember);
+  const contactValue = await fetchPrimaryContact(c, headMember.member_id);
+  await c.env.DB.prepare(
+    `UPDATE households SET household_name=?, address_line1=?, address_line2=?, city=?, state=?, zip_code=?, home_phone=?, head_member_id=?, updated_at=datetime('now')
+     WHERE household_id=?`
+  ).bind(
+    headName ? `${headName} 가족` : '가족',
+    headMember.address_line1 || null,
+    headMember.address_line2 || null,
+    headMember.city || null,
+    headMember.state || null,
+    headMember.zip_code || null,
+    contactValue || null,
+    headMember.member_id,
+    householdId
+  ).run();
+};
+
+const ensureHouseholdForRelationship = async (c: any, memberId: number, relatedId: number, relationType: string) => {
+  const member = await fetchMemberBasic(c, memberId);
+  const related = await fetchMemberBasic(c, relatedId);
+  if (!member || !related) return;
+
+  let householdId: number | null = member.household_id || related.household_id || null;
+  let headMemberId: number | null = null;
+
+  if (householdId) {
+    const hh = await c.env.DB.prepare(`SELECT household_id, head_member_id FROM households WHERE household_id=?`).bind(householdId).first<any>();
+    headMemberId = hh?.head_member_id || null;
+  }
+
+  if (!householdId) {
+    headMemberId = pickHeadMemberId(member, related, relationType);
+    const headMember = headMemberId === member.member_id ? member : related;
+    const headName = getMemberName(headMember);
+    const contactValue = await fetchPrimaryContact(c, headMemberId);
+    const res = await c.env.DB.prepare(
+      `INSERT INTO households (church_id, household_name, head_member_id, address_line1, address_line2, city, state, zip_code, home_phone)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      headName ? `${headName} 가족` : '가족',
+      headMemberId,
+      headMember.address_line1 || null,
+      headMember.address_line2 || null,
+      headMember.city || null,
+      headMember.state || null,
+      headMember.zip_code || null,
+      contactValue || null
+    ).run();
+    householdId = res.meta.last_row_id;
+  } else if (!headMemberId) {
+    headMemberId = pickHeadMemberId(member, related, relationType);
+    const headMember = headMemberId === member.member_id ? member : related;
+    await updateHouseholdFromHead(c, householdId, headMember);
+  }
+
+  const roles = mapHouseholdRoles(relationType, headMemberId, member.member_id, related.member_id);
+  await c.env.DB.prepare(`UPDATE members SET household_id=?, household_role=? WHERE member_id=?`)
+    .bind(householdId, roles.memberRole || null, member.member_id).run();
+  await c.env.DB.prepare(`UPDATE members SET household_id=?, household_role=? WHERE member_id=?`)
+    .bind(householdId, roles.relatedRole || null, related.member_id).run();
+
+  if (headMemberId) {
+    await c.env.DB.prepare(`UPDATE members SET household_role='head' WHERE member_id=?`).bind(headMemberId).run();
+  }
+};
+
 // List/search members (address book)
 members.get('/', async (c) => {
   const q = (c.req.query('q') || '').trim()
@@ -20,9 +147,11 @@ members.get('/', async (c) => {
     WHERE m.church_id = ?`
   const binds: any[] = [churchId]
   if (q) {
-    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.preferred_name LIKE ?)`
+    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.preferred_name LIKE ?
+      OR EXISTS (SELECT 1 FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.value LIKE ?)
+      OR h.home_phone LIKE ?)`
     const like = `%${q}%`
-    binds.push(like, like, like, like)
+    binds.push(like, like, like, like, like, like)
   }
   if (status) {
     sql += ` AND m.status = ?`
@@ -98,12 +227,14 @@ members.post('/', async (c) => {
   ).bind(
     b.household_id || null, b.household_role || null, b.first_name, b.last_name, b.korean_name || null,
     b.preferred_name || null, b.gender || null, b.title || null, b.birth_date || null,
-    b.member_type || '교인', b.employment_type || '봉사자', b.status || '활동', b.photo_url || null, b.note || null,
+    b.member_type || '성도', b.employment_type || '봉사자', b.status || '활동', b.photo_url || null, b.note || null,
     b.use_own_address ? 1 : 0, b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null
   ).run()
   const memberId = res.meta.last_row_id
 
   if (b.mobile) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'mobile', ?, 1)`).bind(memberId, b.mobile).run()
+  if (b.home) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'home', ?, 0)`).bind(memberId, b.home).run()
+  if (b.office) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'office', ?, 0)`).bind(memberId, b.office).run()
   if (b.email) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'email', ?, 0)`).bind(memberId, b.email).run()
 
   return c.json({ member_id: memberId })
@@ -121,11 +252,27 @@ members.put('/:id', async (c) => {
      WHERE member_id=?`
   ).bind(
     b.first_name, b.last_name, b.korean_name || null, b.preferred_name || null, b.gender || null, b.title || null,
-    b.birth_date || null, b.member_type || '교인', b.employment_type || '봉사자', b.status || '활동', b.note || null,
+    b.birth_date || null, b.member_type || '성도', b.employment_type || '봉사자', b.status || '활동', b.note || null,
     b.household_id || null, b.household_role || null, b.use_own_address ? 1 : 0,
     b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null,
     id
   ).run()
+
+  const contactUpdates = [
+    { type: 'mobile', value: b.mobile, is_primary: 1 },
+    { type: 'home', value: b.home, is_primary: 0 },
+    { type: 'office', value: b.office, is_primary: 0 },
+    { type: 'email', value: b.email, is_primary: 0 },
+  ]
+  for (const item of contactUpdates) {
+    const val = (item.value || '').trim()
+    await c.env.DB.prepare(`DELETE FROM member_contacts WHERE member_id=? AND contact_type=?`).bind(id, item.type).run()
+    if (val) {
+      await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, ?, ?, ?)`) 
+        .bind(id, item.type, val, item.is_primary).run()
+    }
+  }
+
   return c.json({ ok: true })
 })
 
@@ -173,6 +320,9 @@ members.post('/:id/relationships', async (c) => {
       `INSERT OR IGNORE INTO member_relationships (member_id, related_id, relation_type, note) VALUES (?, ?, ?, ?)`
     ).bind(b.related_id, id, b.reciprocal_type, b.note || null).run()
   }
+
+  await ensureHouseholdForRelationship(c, id, b.related_id, b.relation_type)
+
   return c.json({ ok: true })
 })
 members.delete('/relationships/:relId', async (c) => {

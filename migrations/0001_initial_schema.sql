@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_group_church ON org_groups(church_id);
 CREATE INDEX IF NOT EXISTS idx_group_parent ON org_groups(parent_id);
 CREATE INDEX IF NOT EXISTS idx_group_category ON org_groups(category_id);
 
--- ============ SECTION 3. 가족 & 교인 ============
+-- ============ SECTION 3. 가족 & 성도 ============
 
 -- 3-1) 가구(세대)
 CREATE TABLE IF NOT EXISTS households (
@@ -95,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_household_church ON households(church_id);
 CREATE INDEX IF NOT EXISTS idx_household_zip ON households(zip_code);
 CREATE INDEX IF NOT EXISTS idx_household_state_city ON households(state, city);
 
--- 3-2) 교인 기본정보
+-- 3-2) 성도 기본정보
 CREATE TABLE IF NOT EXISTS members (
   member_id       INTEGER PRIMARY KEY AUTOINCREMENT,
   church_id       INTEGER NOT NULL,
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS members (
   county          TEXT,
   country         TEXT NOT NULL DEFAULT 'US',
   salvation_date  TEXT,
-  member_type     TEXT NOT NULL DEFAULT '교인' CHECK(member_type IN ('교인','새신자','목회자','직원','학생')),
+  member_type     TEXT NOT NULL DEFAULT '성도' CHECK(member_type IN ('성도','새신자','목회자','직원','학생')),
   employment_type TEXT NOT NULL DEFAULT '봉사자' CHECK(employment_type IN ('봉사자','상근직원','목회자')),
   photo_url       TEXT,
   status          TEXT NOT NULL DEFAULT '활동' CHECK(status IN ('활동','휴면','이전','사망')),
@@ -133,7 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_member_lastname ON members(last_name, first_name)
 CREATE INDEX IF NOT EXISTS idx_member_state_city ON members(state, city);
 CREATE INDEX IF NOT EXISTS idx_member_zip ON members(zip_code);
 
--- 3-4) 교인 연락처
+-- 3-4) 성도 연락처
 CREATE TABLE IF NOT EXISTS member_contacts (
   contact_id   INTEGER PRIMARY KEY AUTOINCREMENT,
   member_id    INTEGER NOT NULL,
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS member_contacts (
 );
 CREATE INDEX IF NOT EXISTS idx_contact_member ON member_contacts(member_id);
 
--- 3-5) 교인 보유 언어
+-- 3-5) 성도 보유 언어
 CREATE TABLE IF NOT EXISTS member_languages (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   member_id   INTEGER NOT NULL,

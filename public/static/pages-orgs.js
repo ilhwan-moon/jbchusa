@@ -79,13 +79,18 @@ async function loadGroupMembers(groupId, cat) {
   const grouped = {};
   members.forEach((m) => { (grouped[m.position_type] = grouped[m.position_type] || []).push(m); });
 
+  const canManage = hasPerm('org.manage');
   box.innerHTML = `
     <div class="flex items-start justify-between mb-4 pb-3 border-b border-slate-100">
       <div>
         <h3 class="text-lg font-bold text-slate-800">${esc(g.name)}</h3>
         <p class="text-sm text-slate-500">${esc(g.category_name)} · ${esc(g.level_type)}${g.service_area?` · ${esc(g.service_area)}`:''}</p>
       </div>
-      <span class="badge bg-brand-50 text-brand-700"><i class="fas fa-users mr-1"></i>${members.length}${t('common.people_unit')}</span>
+      <div class="flex items-center gap-2">
+        <span class="badge bg-brand-50 text-brand-700"><i class="fas fa-users mr-1"></i>${members.length}${t('common.people_unit')}</span>
+        ${canManage?`<button onclick='editOrgGroup(${JSON.stringify(g.category_code)}, ${JSON.stringify(g)})' title="${t('common.edit')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-brand-600"><i class="fas fa-pen text-xs"></i></button>
+        <button onclick='deleteOrgGroup(${g.group_id}, ${JSON.stringify(g.name)}, ${JSON.stringify(g.category_code)})' title="${t('common.delete')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button>`:''}
+      </div>
     </div>
     ${members.length===0 ? `<div class="text-center text-slate-400 py-12"><i class="fas fa-user-slash text-2xl mb-2"></i><p>${t('orgs.no_members')}</p></div>`
       : order.filter((pt)=>grouped[pt]).map((pt) => `
@@ -110,8 +115,11 @@ function memberCardHtml(m) {
   </a>`;
 }
 
-/* ---- create a new org group, scoped to a category (교구/교제부서/교회학교/봉사부서 등록) ---- */
-async function addOrgGroup(categoryCode, defaults) {
+/* ---- create / edit an org group, scoped to a category (교구/교제부서/교회학교/봉사부서) ---- */
+async function addOrgGroup(categoryCode, defaults) { return orgGroupForm(categoryCode, defaults || {}, null); }
+async function editOrgGroup(categoryCode, group) { return orgGroupForm(categoryCode, group || {}, group); }
+
+async function orgGroupForm(categoryCode, defaults, editing) {
   defaults = defaults || {};
   const [{ data: cd }, { data: gd }] = await Promise.all([
     api.get('/orgs/categories'),
@@ -128,50 +136,75 @@ async function addOrgGroup(categoryCode, defaults) {
     MINISTRY: ['팀', '부서', '기타'],
     STAFF: ['부서', '팀', '기타'],
   };
-  const levels = levelMap[categoryCode] || ['기타'];
+  let levels = levelMap[categoryCode] || ['기타'];
+  // ensure current level_type is selectable even if not in the preset list
+  if (defaults.level_type && !levels.includes(defaults.level_type)) levels = [defaults.level_type, ...levels];
   const meta = CATEGORY_META[categoryCode] || {};
+  // exclude self (and avoid being its own parent) from parent options when editing
   const parentOpts = `<option value="">${t('orgs.top_level')}</option>` +
-    (gd.groups || []).map((g) => `<option value="${g.group_id}" ${defaults.parent_id==g.group_id?'selected':''}>${esc(g.name)} (${esc(g.level_type)})</option>`).join('');
+    (gd.groups || []).filter((g) => !editing || g.group_id !== editing.group_id)
+      .map((g) => `<option value="${g.group_id}" ${defaults.parent_id==g.group_id?'selected':''}>${esc(g.name)} (${esc(g.level_type)})</option>`).join('');
 
+  const title = editing ? t('orgs.edit_title') : t('orgs.register_title', { name: esc(cat.name) });
   const box = h(`<div class="p-6">
-    <h3 class="text-lg font-bold mb-1"><i class="fas ${meta.icon||'fa-folder'} ${meta.color||''} mr-2"></i>${t('orgs.register_title', { name: esc(cat.name) })}</h3>
+    <h3 class="text-lg font-bold mb-1"><i class="fas ${meta.icon||'fa-folder'} ${meta.color||''} mr-2"></i>${title}</h3>
     <p class="text-sm text-slate-500 mb-4">${esc(cat.description||'')}</p>
     <form id="og-form" class="space-y-3">
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('orgs.org_name')} *</label>
-        <input name="name" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('orgs.org_name_ph')}" /></div>
+        <input name="name" required value="${esc(defaults.name||'')}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('orgs.org_name_ph')}" /></div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('orgs.level_type')}</label>
           <select name="level_type" class="w-full px-3 py-2.5 border rounded-lg">${levels.map((l)=>`<option ${defaults.level_type===l?'selected':''}>${l}</option>`).join('')}</select></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('orgs.sort_order')}</label>
-          <input name="sort_order" type="number" value="0" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+          <input name="sort_order" type="number" value="${defaults.sort_order??0}" class="w-full px-3 py-2.5 border rounded-lg" /></div>
       </div>
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('orgs.parent_org')}</label>
         <select name="parent_id" class="w-full px-3 py-2.5 border rounded-lg">${parentOpts}</select></div>
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('orgs.service_area')}</label>
-        <input name="service_area" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${categoryCode==='PARISH'?t('orgs.service_area_parish'):t('orgs.service_area_other')}" /></div>
+        <input name="service_area" value="${esc(defaults.service_area||'')}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${categoryCode==='PARISH'?t('orgs.service_area_parish'):t('orgs.service_area_other')}" /></div>
       <div class="flex gap-2 pt-2">
         <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
-        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.register')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${editing?t('common.save'):t('common.register')}</button>
       </div>
     </form></div>`);
   openModal(box);
   box.querySelector('#og-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const payload = {
+      category_id: cat.category_id,
+      name: fd.get('name'),
+      level_type: fd.get('level_type'),
+      parent_id: fd.get('parent_id') || null,
+      service_area: fd.get('service_area') || null,
+      sort_order: parseInt(fd.get('sort_order') || '0', 10),
+    };
     try {
-      await api.post('/admin/groups', {
-        category_id: cat.category_id,
-        name: fd.get('name'),
-        level_type: fd.get('level_type'),
-        parent_id: fd.get('parent_id') || null,
-        service_area: fd.get('service_area') || null,
-        sort_order: parseInt(fd.get('sort_order') || '0', 10),
-      });
+      if (editing) {
+        await api.put(`/admin/groups/${editing.group_id}`, { ...payload, is_active: 1 });
+        toast(t('orgs.updated'), 'success');
+      } else {
+        await api.post('/admin/groups', payload);
+        toast(t('orgs.registered'), 'success');
+      }
       closeModal();
-      toast(t('orgs.registered'), 'success');
       router();
     } catch (err) {
       toast(err.response?.data?.error || t('common.failed'), 'error');
     }
   });
+}
+
+/* ---- delete (soft) an org group ---- */
+async function deleteOrgGroup(groupId, name, categoryCode) {
+  if (!confirm(t('orgs.del_confirm', { name }))) return;
+  try {
+    await api.delete(`/admin/groups/${groupId}`);
+    toast(t('orgs.deleted'), 'success');
+    // navigate back to category list (drop the selected group from the hash)
+    location.hash = `#/orgs/${categoryCode || ''}`;
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
 }

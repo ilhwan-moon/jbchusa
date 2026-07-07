@@ -53,22 +53,22 @@ INSERT OR IGNORE INTO households (household_id, church_id, household_name, addre
 (4, 1, 'The Choi Family', '88 Technology Dr', 'Irvine', 'CA', '92618', '(949) 555-1004'),
 (5, 1, 'The Jung Family', '700 W Beech St', 'San Diego', 'CA', '92101', '(619) 555-1005');
 
--- ===== 교인 =====
+-- ===== 성도 =====
 INSERT OR IGNORE INTO members (member_id, church_id, household_id, household_role, first_name, last_name, korean_name, preferred_name, gender, title, birth_date, member_type, employment_type, status) VALUES
-(1, 1, 1, 'head',   'David',  'Kim',  '김다윗', 'David',  'M', '장로', '1972-03-15', '교인', '봉사자', '활동'),
-(2, 1, 1, 'spouse', 'Grace',  'Kim',  '김은혜', 'Grace',  'F', '권사', '1975-07-22', '교인', '봉사자', '활동'),
+(1, 1, 1, 'head',   'David',  'Kim',  '김다윗', 'David',  'M', '장로', '1972-03-15', '성도', '봉사자', '활동'),
+(2, 1, 1, 'spouse', 'Grace',  'Kim',  '김은혜', 'Grace',  'F', '권사', '1975-07-22', '성도', '봉사자', '활동'),
 (3, 1, 1, 'child',  'Daniel', 'Kim',  '김다니엘','Daniel', 'M', '학생', '2010-01-10', '학생', '봉사자', '활동'),
 (4, 1, 2, 'head',   'John',   'Lee',  '이요한', 'John',   'M', '목사', '1968-11-03', '목회자','목회자', '활동'),
-(5, 1, 2, 'spouse', 'Sarah',  'Lee',  '이사라', 'Sarah',  'F', '사모', '1970-05-19', '교인', '봉사자', '활동'),
-(6, 1, 3, 'head',   'Peter',  'Park', '박베드로','Peter',  'M', '집사', '1980-09-08', '교인', '봉사자', '활동'),
-(7, 1, 3, 'spouse', 'Esther', 'Park', '박에스더','Esther', 'F', '집사', '1982-12-25', '교인', '봉사자', '활동'),
+(5, 1, 2, 'spouse', 'Sarah',  'Lee',  '이사라', 'Sarah',  'F', '사모', '1970-05-19', '성도', '봉사자', '활동'),
+(6, 1, 3, 'head',   'Peter',  'Park', '박베드로','Peter',  'M', '집사', '1980-09-08', '성도', '봉사자', '활동'),
+(7, 1, 3, 'spouse', 'Esther', 'Park', '박에스더','Esther', 'F', '집사', '1982-12-25', '성도', '봉사자', '활동'),
 (8, 1, 3, 'child',  'Joshua', 'Park', '박여호수아','Joshua','M', '학생', '2013-04-17', '학생', '봉사자', '활동'),
-(9, 1, 4, 'head',   'James',  'Choi', '최야고보','James',  'M', '집사', '1978-06-30', '교인', '봉사자', '활동'),
-(10,1, 4, 'spouse', 'Hannah', 'Choi', '최한나', 'Hannah', 'F', '자매', '1985-02-14', '교인', '봉사자', '활동'),
-(11,1, 5, 'head',   'Samuel', 'Jung', '정사무엘','Samuel', 'M', '장로', '1965-08-21', '교인', '봉사자', '활동'),
-(12,1, 5, 'spouse', 'Rebecca','Jung', '정리브가','Rebecca','F', '권사', '1967-10-05', '교인', '봉사자', '활동'),
-(13,1, NULL,NULL,    'Andrew', 'Yoon', '윤안드레','Andrew', 'M', '형제', '1995-03-03', '교인', '봉사자', '활동'),
-(14,1, NULL,NULL,    'Mary',   'Han',  '한마리아','Mary',   'F', '자매', '1998-07-07', '교인', '봉사자', '활동'),
+(9, 1, 4, 'head',   'James',  'Choi', '최야고보','James',  'M', '집사', '1978-06-30', '성도', '봉사자', '활동'),
+(10,1, 4, 'spouse', 'Hannah', 'Choi', '최한나', 'Hannah', 'F', '자매', '1985-02-14', '성도', '봉사자', '활동'),
+(11,1, 5, 'head',   'Samuel', 'Jung', '정사무엘','Samuel', 'M', '장로', '1965-08-21', '성도', '봉사자', '활동'),
+(12,1, 5, 'spouse', 'Rebecca','Jung', '정리브가','Rebecca','F', '권사', '1967-10-05', '성도', '봉사자', '활동'),
+(13,1, NULL,NULL,    'Andrew', 'Yoon', '윤안드레','Andrew', 'M', '형제', '1995-03-03', '성도', '봉사자', '활동'),
+(14,1, NULL,NULL,    'Mary',   'Han',  '한마리아','Mary',   'F', '자매', '1998-07-07', '성도', '봉사자', '활동'),
 (15,1, NULL,NULL,    'Paul',   'Cho',  '조바울', 'Paul',   'M', '전도사', '1990-01-01', '목회자','목회자', '활동');
 
 -- 세대주 설정

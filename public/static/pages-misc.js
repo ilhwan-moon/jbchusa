@@ -81,7 +81,8 @@ Pages.addressbook = async function (content) {
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${data.members.map(abCard).join('')}</div>`;
   }
   function abCard(m) {
-    const name = m.korean_name || `${m.first_name} ${m.last_name}`;
+    const englishName = `${m.first_name} ${m.last_name}`.trim();
+    const name = m.korean_name ? `${m.korean_name} (${englishName})` : englishName;
     return `<a href="#/members/${m.member_id}" class="card p-3 flex items-center gap-3 hover:border-brand-300 hover:shadow-sm transition">
       ${avatar(m.photo_url, m.first_name, m.last_name, 'w-11 h-11')}
       <div class="flex-1 min-w-0">
@@ -104,7 +105,6 @@ Pages.households = async function (content, id) {
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div><h2 class="text-xl font-bold text-slate-800">${t('hh.title')}</h2><p class="text-sm text-slate-500">${t('hh.desc')}</p></div>
-      ${canEdit?`<button onclick="createHousehold()" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('hh.add')}</button>`:''}
     </div>
     <div class="card p-3 mb-4"><div class="relative"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
       <input id="hh-search" placeholder="${t('hh.search_ph')}" class="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg" /></div></div>
@@ -131,9 +131,20 @@ async function householdDetail(content, id) {
   const { data } = await api.get(`/households/${id}`);
   const hh = data.household;
   const canEdit = hasPerm('member.edit');
-  const fullAddr = [hh.address_line1, hh.address_line2, hh.city, hh.state, hh.zip_code].filter(Boolean).join(', ');
+  const head = data.head_member || null;
+  const headContacts = data.head_contacts || [];
+  const headAddress = data.head_address || {};
+  const headName = head ? (head.korean_name || `${head.first_name} ${head.last_name}`) : '-';
+  const fullAddr = [headAddress.address_line1, headAddress.address_line2, headAddress.city, headAddress.state, headAddress.zip_code].filter(Boolean).join(', ');
   const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
   const roleLabel = (rc) => t('hhrole.' + rc) || t('hhrole.member');
+  const contactLabelMap = { mobile:t('member.contact_mobile'), home:t('member.contact_home'), office:t('member.contact_office'), email:t('member.contact_email') };
+  const headContactHtml = headContacts.map((ct) => {
+    if (ct.contact_type === 'email') {
+      return `<div class="text-sm text-slate-500"><i class="fas fa-envelope text-slate-400 mr-2"></i>${esc(ct.value)}</div>`;
+    }
+    return `<div class="text-sm text-slate-500"><i class="fas fa-phone text-slate-400 mr-2"></i>${contactLabelMap[ct.contact_type]||ct.contact_type}: ${esc(ct.value)}</div>`;
+  }).join('') || `<div class="text-sm text-slate-400">${t('member.no_contacts')}</div>`;
 
   content.innerHTML = `
     <div class="mb-4"><a href="#/households" class="text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-arrow-left mr-1"></i>${t('hh.list')}</a></div>
@@ -142,25 +153,35 @@ async function householdDetail(content, id) {
         <div class="flex items-center gap-4">
           <div class="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center text-2xl"><i class="fas fa-house-user"></i></div>
           <div><h2 class="text-xl font-bold text-slate-800">${esc(hh.household_name)}</h2>
+            <div class="text-sm text-slate-500 mt-1"><span class="font-semibold text-slate-600">${t('hh.head_member')}</span>: ${esc(headName)}</div>
             ${fullAddr?`<a href="${mapsUrl}" target="_blank" class="text-sm text-blue-600 hover:underline"><i class="fas fa-location-dot mr-1"></i>${esc(fullAddr)}</a>`:`<span class="text-sm text-slate-400">${t('hh.no_address')}</span>`}
-            ${hh.home_phone?`<div class="text-sm text-slate-500 mt-1"><a href="tel:${esc(hh.home_phone.replace(/[^0-9+]/g,''))}"><i class="fas fa-phone mr-1 text-emerald-600"></i>${esc(hh.home_phone)}</a></div>`:''}
+            <div class="mt-2 space-y-1">${headContactHtml}</div>
           </div>
         </div>
-        ${canEdit?`<button onclick="editHousehold(${hh.household_id})" class="text-slate-400 hover:text-brand-600"><i class="fas fa-pen"></i></button>`:''}
+        ${canEdit?`<div class="flex items-center gap-2">
+          <button onclick="setHouseholdHead(${hh.household_id})" class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-brand-200 text-brand-600 hover:bg-brand-50">${t('hh.set_head')}</button>
+          <button onclick="editHousehold(${hh.household_id})" class="text-slate-400 hover:text-brand-600"><i class="fas fa-pen"></i></button>
+        </div>`:''}
       </div>
     </div>
     <div class="card p-5">
-      <div class="flex items-center justify-between mb-3"><h3 class="font-bold text-slate-700">${t('hh.members')} (${data.members.length}${t('common.people_unit')})</h3>
-        ${canEdit?`<button onclick="addMemberToHousehold(${hh.household_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-user-plus mr-1"></i>${t('hh.add_member')}</button>`:''}</div>
-      <div class="space-y-2">${data.members.map((m)=>`
+      <div class="flex items-center justify-between mb-3"><h3 class="font-bold text-slate-700">${t('hh.members')} (${data.members.length}${t('common.people_unit')})</h3></div>
+      <div class="space-y-2">${data.members.map((m)=>{
+        const isHead = head && m.member_id === head.member_id;
+        return `
         <div class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100">
           <a href="#/members/${m.member_id}" class="flex items-center gap-3 flex-1 min-w-0">
             ${avatar(m.photo_url, m.first_name, m.last_name, 'w-10 h-10')}
-            <div class="min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(m.korean_name||m.first_name+' '+m.last_name)} ${m.title?`<span class="text-xs text-slate-400">${esc(m.title)}</span>`:''}</div>
+            <div class="min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(m.korean_name||m.first_name+' '+m.last_name)} ${m.title?`<span class="text-xs text-slate-400">${esc(m.title)}</span>`:''}
+              ${isHead?`<span class="ml-2 badge bg-brand-50 text-brand-700">${t('hh.head_badge')}</span>`:''}</div>
               <div class="text-xs text-slate-400">${roleLabel(m.household_role)}${m.birth_date?` · ${esc(m.birth_date)}`:''}</div></div>
           </a>
-          ${canEdit?`<button onclick="removeFromHousehold(${hh.household_id},${m.member_id})" class="text-slate-300 hover:text-red-500"><i class="fas fa-times"></i></button>`:''}
-        </div>`).join('') || `<div class="text-sm text-slate-400 py-4 text-center">${t('hh.no_members')}</div>`}</div>
+          ${canEdit?`<div class="flex items-center gap-2">
+            <button onclick="editHouseholdMemberRole(${hh.household_id}, ${m.member_id}, '${m.household_role || ''}')" class="text-slate-300 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen"></i></button>
+            <button onclick="removeFromHousehold(${hh.household_id},${m.member_id})" class="text-slate-300 hover:text-red-500"><i class="fas fa-times"></i></button>
+          </div>`:''}
+        </div>`;
+      }).join('') || `<div class="text-sm text-slate-400 py-4 text-center">${t('hh.no_members')}</div>`}</div>
     </div>`;
 }
 
@@ -182,6 +203,45 @@ async function createHousehold() {
     e.preventDefault();
     try { const { data } = await api.post('/households', Object.fromEntries(new FormData(e.target)));
       closeModal(); toast(t('hh.registered'), 'success'); location.hash = `#/households/${data.household_id}`; }
+    catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
+  });
+}
+
+async function setHouseholdHead(hhId) {
+  const { data } = await api.get(`/households/${hhId}`);
+  const members = data.members || [];
+  const headId = data.head_member?.member_id;
+  const opts = members.map((m)=>`<option value="${m.member_id}" ${String(m.member_id)===String(headId)?'selected':''}>${esc(m.korean_name||m.first_name+' '+m.last_name)}</option>`).join('');
+  const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('hh.set_head')}</h3>
+    <form id="hh-head-form" class="space-y-3">
+      <select name="head_member_id" class="w-full px-3 py-2.5 border rounded-lg">${opts}</select>
+      <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#hh-head-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target));
+    try { await api.put(`/households/${hhId}/head`, payload);
+      closeModal(); toast(t('common.saved'), 'success'); router(); }
+    catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
+  });
+}
+
+async function editHouseholdMemberRole(hhId, memberId, currentRole) {
+  const roleOptions = ['head','spouse','child','parent','relative','other']
+    .map((role) => `<option value="${role}" ${role===currentRole?'selected':''}>${t('hhrole.' + role)}</option>`)
+    .join('');
+  const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('common.edit')}</h3>
+    <form id="hh-role-form" class="space-y-3">
+      <select name="household_role" class="w-full px-3 py-2.5 border rounded-lg">${roleOptions}</select>
+      <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#hh-role-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target));
+    try { await api.put(`/households/${hhId}/members/${memberId}`, payload);
+      closeModal(); toast(t('common.saved'), 'success'); router(); }
     catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
 }
@@ -238,7 +298,7 @@ async function removeFromHousehold(hhId, memberId) {
 /* ---------------- Admin ---------------- */
 Pages.admin = async function (content, tab) {
   if (!isAdmin()) { content.innerHTML = `<div class="card p-12 text-center text-slate-400"><i class="fas fa-lock text-2xl mb-2"></i><p>${t('common.no_permission')}</p></div>`; return; }
-  const tabs = [['users',t('admin.tab.users'),'fa-users-gear'],['positions',t('admin.tab.positions'),'fa-id-badge'],['languages',t('admin.tab.languages'),'fa-language'],['orgs',t('admin.tab.orgs'),'fa-sitemap']];
+  const tabs = [['users',t('admin.tab.users'),'fa-users-gear'],['positions',t('admin.tab.positions'),'fa-id-badge'],['languages',t('admin.tab.languages'),'fa-language'],['orgs',t('admin.tab.orgs'),'fa-sitemap'],['calendar',t('admin.tab.calendar'),'fa-calendar-days']];
   content.innerHTML = `
     <h2 class="text-xl font-bold text-slate-800 mb-4">${t('admin.title')}</h2>
     <div class="flex gap-2 mb-4 overflow-x-auto">${tabs.map(([t,l,i])=>`
@@ -249,6 +309,7 @@ Pages.admin = async function (content, tab) {
   if (tab === 'positions') return adminPositions(body);
   if (tab === 'languages') return adminLanguages(body);
   if (tab === 'orgs') return adminOrgs(body);
+  if (tab === 'calendar') return adminCalendar(body);
 };
 
 async function adminUsers(body) {
@@ -356,6 +417,38 @@ async function adminLanguages(body) {
     <div class="flex justify-end mb-3"><button onclick="addLanguage()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_language')}</button></div>
     <div class="card p-4"><div class="flex flex-wrap gap-2">${data.languages.map((l)=>`<span class="badge bg-slate-100 text-slate-600 text-sm py-1.5">${esc(l.name_native||l.name_en)} <span class="text-xs text-slate-400">${esc(l.code)}</span></span>`).join('')}</div></div>`;
 }
+
+async function adminCalendar(body) {
+  const { data } = await api.get('/admin/calendar');
+  const c = data.calendar || {};
+  body.innerHTML = `
+    <div class="card p-5">
+      <h3 class="text-lg font-bold text-slate-800 mb-1">${t('admin.calendar_title')}</h3>
+      <p class="text-sm text-slate-500 mb-4">${t('admin.calendar_desc')}</p>
+      <form id="calendar-form" class="space-y-3">
+        <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="is_enabled" ${c.is_enabled? 'checked' : ''} /> ${t('admin.calendar_enabled')}</label>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.calendar_id')}</label><input name="calendar_id" value="${esc(c.calendar_id||'')}" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.calendar_timezone')}</label><input name="timezone" value="${esc(c.timezone||'America/Los_Angeles')}" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.calendar_service_account')}</label>
+          <textarea name="service_account_json" rows="6" class="w-full px-3 py-2.5 border rounded-lg" placeholder="{\n  \"type\": \"service_account\", ...\n}">${esc(c.service_account_json||'')}</textarea>
+        </div>
+        <div class="flex justify-end pt-2"><button type="submit" class="px-4 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+      </form>
+    </div>`;
+
+  const form = body.querySelector('#calendar-form');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(form));
+    try {
+      await api.put('/admin/calendar', payload);
+      toast(t('admin.calendar_saved'), 'success');
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
 async function addLanguage() {
   const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('admin.add_language')}</h3>
     <form id="l-form" class="space-y-3">
@@ -382,8 +475,13 @@ async function adminOrgs(body) {
       return `<div class="card p-4 mb-3"><div class="font-bold text-slate-700 mb-2"><i class="fas ${meta.icon||'fa-folder'} ${meta.color||''} mr-2"></i>${catLabel(code)}</div>
       <div class="space-y-1">${byCat[code].map((g)=>`<div class="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 text-sm" style="margin-left:${g.parent_id?'16px':'0'}">
         <span class="text-slate-700">${esc(g.name)} <span class="text-xs text-slate-400">(${esc(g.level_type)}${g.service_area?' · '+esc(g.service_area):''}) · ${g.member_count}${t('common.people_unit')}</span></span>
-        <button onclick="delGroup(${g.group_id})" class="text-slate-300 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button></div>`).join('')}</div></div>`;
+        <div class="flex items-center gap-2">
+          <button onclick="editGroup(${g.group_id})" class="text-slate-300 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick="delGroup(${g.group_id})" class="text-slate-300 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button>
+        </div></div>`).join('')}</div></div>`;
     }).join('')}`;
+  window.__orgsCache = gd.groups || [];
+  window.__orgCats = cd.categories || [];
 }
 async function addGroup(categories) {
   const { data: gd } = await api.get('/orgs/groups');
@@ -403,6 +501,45 @@ async function addGroup(categories) {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target));
     try { await api.post('/admin/groups', payload); closeModal(); toast(t('admin.org_added'), 'success'); router(); }
+    catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
+  });
+}
+
+function editGroup(groupId) {
+  const groups = window.__orgsCache || [];
+  const categories = window.__orgCats || [];
+  const g = groups.find((item) => String(item.group_id) === String(groupId));
+  if (!g) return;
+  const catOpts = categories.map((c)=>`<option value="${c.category_id}" ${String(c.category_id)===String(g.category_id)?'selected':''}>${esc(c.name)}</option>`).join('');
+  const parentOpts = `<option value="">${t('orgs.top_level')}</option>` +
+    groups.filter((item) => item.group_id !== g.group_id)
+      .map((item)=>`<option value="${item.group_id}" ${String(item.group_id)===String(g.parent_id)?'selected':''}>${esc(item.name)}</option>`).join('');
+  const levelOpts = ['교구','구역','조','부서','반','팀','기타']
+    .map((lv)=>`<option ${g.level_type===lv?'selected':''}>${lv}</option>`).join('');
+  const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('orgs.edit_title')}</h3>
+    <form id="g-edit-form" class="space-y-3">
+      <select name="category_id" class="w-full px-3 py-2.5 border rounded-lg bg-slate-50" disabled>${catOpts}</select>
+      <input name="name" required value="${esc(g.name||'')}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('orgs.org_name')}" />
+      <select name="level_type" class="w-full px-3 py-2.5 border rounded-lg">${levelOpts}</select>
+      <select name="parent_id" class="w-full px-3 py-2.5 border rounded-lg">${parentOpts}</select>
+      <input name="service_area" value="${esc(g.service_area||'')}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('orgs.service_area')}" />
+      <input name="sort_order" type="number" value="${g.sort_order ?? 0}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('orgs.sort_order')}" />
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="is_active" ${g.is_active? 'checked' : ''} /> ${t('orgs.is_active')}</label>
+      <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#g-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      name: fd.get('name'),
+      level_type: fd.get('level_type'),
+      parent_id: fd.get('parent_id') || null,
+      service_area: fd.get('service_area') || null,
+      sort_order: fd.get('sort_order') ? parseInt(fd.get('sort_order'), 10) : 0,
+      is_active: fd.get('is_active') ? 1 : 0,
+    };
+    try { await api.put(`/admin/groups/${g.group_id}`, payload); closeModal(); toast(t('orgs.updated'), 'success'); router(); }
     catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
 }

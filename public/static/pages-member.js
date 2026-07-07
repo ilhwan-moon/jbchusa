@@ -66,7 +66,8 @@ Pages.memberDetail = async function (content, memberId) {
           <span class="badge bg-slate-100 text-slate-600">${esc(m.member_type)}</span>
         </div>
         ${langHtml?`<div class="mt-3">${langHtml}</div>`:''}
-        ${canEdit?`<button onclick="editMember(${m.member_id})" class="mt-4 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"><i class="fas fa-pen mr-1"></i>${t('member.edit_info')}</button>`:''}
+        ${canEdit?`<button onclick="editMember(${m.member_id})" class="mt-4 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"><i class="fas fa-pen mr-1"></i>${t('member.edit_info')}</button>
+        <button onclick='deleteMember(${m.member_id}, ${JSON.stringify(name)})' class="mt-2 w-full py-2 rounded-lg border border-red-200 text-sm text-red-500 hover:bg-red-50"><i class="fas fa-trash mr-1"></i>${t('member.delete')}</button>`:''}
       </div>
 
       <!-- Details -->
@@ -210,7 +211,40 @@ async function deleteAssignment(asgId, memberId) {
 /* ---- edit/create member form ---- */
 async function editMember(memberId) {
   let m = {};
-  if (memberId) { const { data } = await api.get(`/members/${memberId}`); m = data.member; }
+  let contacts = [];
+  let addr = {};
+  if (memberId) {
+    const { data } = await api.get(`/members/${memberId}`);
+    m = data.member;
+    contacts = data.contacts || [];
+    addr = data.address || {};
+  }
+  const contactValue = (type) => {
+    const found = contacts.find((c) => c.contact_type === type);
+    return found ? found.value : '';
+  };
+  const useOwnAddress = m.use_own_address === 1 || !memberId;
+  const personalAddress = {
+    line1: m.address_line1 || '',
+    line2: m.address_line2 || '',
+    city: m.city || '',
+    state: m.state || '',
+    zip: m.zip_code || '',
+  };
+  const householdAddress = {
+    line1: addr.line1 || '',
+    line2: addr.line2 || '',
+    city: addr.city || '',
+    state: addr.state || '',
+    zip: addr.zip || '',
+  };
+  const addressValue = (field) => (useOwnAddress ? personalAddress[field] : householdAddress[field]);
+  const { data: pd } = await api.get('/admin/positions');
+  const titleOptions = Array.from(new Set((pd.positions || []).map((p) => p.name).filter(Boolean)));
+  if (m.title && !titleOptions.includes(m.title)) titleOptions.unshift(m.title);
+  const titleOpts = ['<option value="">-</option>']
+    .concat(titleOptions.map((o) => `<option value="${esc(o)}" ${m.title===o?'selected':''}>${esc(o)}</option>`))
+    .join('');
   const sel = (val, opts) => opts.map((o) => `<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('');
   const box = h(`<div class="p-6 max-h-[80vh] overflow-y-auto">
     <h3 class="text-lg font-bold mb-4">${memberId?t('member.edit_title'):t('member.new_title')}</h3>
@@ -221,7 +255,7 @@ async function editMember(memberId) {
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_name')}</label><input name="korean_name" value="${esc(m.korean_name||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.title')}</label><input name="title" value="${esc(m.title||'')}" class="w-full px-3 py-2 border rounded-lg" placeholder="${t('member.title_ph')}" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.title')}</label><select name="title" class="w-full px-3 py-2 border rounded-lg">${titleOpts}</select></div>
       </div>
       <div class="grid grid-cols-3 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.gender')}</label><select name="gender" class="w-full px-3 py-2 border rounded-lg"><option value="">-</option><option value="M" ${m.gender==='M'?'selected':''}>${t('gender.M')}</option><option value="F" ${m.gender==='F'?'selected':''}>${t('gender.F')}</option></select></div>
@@ -229,20 +263,68 @@ async function editMember(memberId) {
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.status')}</label><select name="status" class="w-full px-3 py-2 border rounded-lg">${['활동','휴면','이전','사망'].map((o)=>`<option value="${o}" ${(m.status||'활동')===o?'selected':''}>${t('status.'+o)}</option>`).join('')}</select></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.member_type')}</label><select name="member_type" class="w-full px-3 py-2 border rounded-lg">${['교인','새신자','목회자','직원','학생'].map((o)=>`<option value="${o}" ${(m.member_type||'교인')===o?'selected':''}>${t('mt.'+o)}</option>`).join('')}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.member_type')}</label><select name="member_type" class="w-full px-3 py-2 border rounded-lg">${['성도','새신자','목회자','직원','학생'].map((o)=>`<option value="${o}" ${(m.member_type||'성도')===o?'selected':''}>${t('mt.'+o)}</option>`).join('')}</select></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.employment_type')}</label><select name="employment_type" class="w-full px-3 py-2 border rounded-lg">${['봉사자','상근직원','목회자'].map((o)=>`<option value="${o}" ${(m.employment_type||'봉사자')===o?'selected':''}>${t('emp.'+o)}</option>`).join('')}</select></div>
       </div>
-      ${!memberId?`<div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.mobile')}</label><input name="mobile" class="w-full px-3 py-2 border rounded-lg" /></div>
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.email')}</label><input name="email" class="w-full px-3 py-2 border rounded-lg" /></div>
-      </div>`:''}
+      <div class="pt-2 border-t border-slate-100">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_mobile')}</label><input name="mobile" value="${esc(contactValue('mobile'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_home')}</label><input name="home" value="${esc(contactValue('home'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_office')}</label><input name="office" value="${esc(contactValue('office'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_email')}</label><input type="email" name="email" value="${esc(contactValue('email'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        </div>
+      </div>
+      <div class="pt-2 border-t border-slate-100">
+        <label class="flex items-center gap-2 text-sm text-slate-600 mb-2"><input type="checkbox" name="use_own_address" ${useOwnAddress?'checked':''} /> ${t('member.use_own_address')}</label>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.address_line1')}</label><input name="address_line1" value="${esc(addressValue('line1')||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.address_line2')}</label><input name="address_line2" value="${esc(addressValue('line2')||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mt-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.city')}</label><input name="city" value="${esc(addressValue('city')||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.state')}</label><input name="state" value="${esc(addressValue('state')||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.zip_code')}</label><input name="zip_code" value="${esc(addressValue('zip')||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        </div>
+      </div>
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.note')}</label><textarea name="note" rows="2" class="w-full px-3 py-2 border rounded-lg">${esc(m.note||'')}</textarea></div>
       <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
     </form></div>`);
   openModal(box, { size:'max-w-xl' });
+  const addressFields = {
+    line1: box.querySelector('[name="address_line1"]'),
+    line2: box.querySelector('[name="address_line2"]'),
+    city: box.querySelector('[name="city"]'),
+    state: box.querySelector('[name="state"]'),
+    zip: box.querySelector('[name="zip_code"]'),
+  };
+  const setAddressMode = (useOwn) => {
+    const source = useOwn ? personalAddress : householdAddress;
+    Object.entries(addressFields).forEach(([key, input]) => {
+      if (!input) return;
+      input.value = source[key] || '';
+      input.disabled = !useOwn;
+      input.classList.toggle('bg-slate-100', !useOwn);
+    });
+  };
+  const useOwnToggle = box.querySelector('[name="use_own_address"]');
+  if (useOwnToggle) {
+    setAddressMode(useOwnToggle.checked);
+    useOwnToggle.addEventListener('change', (e) => setAddressMode(e.target.checked));
+  }
   box.querySelector('#m-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target));
+    const useOwn = !!payload.use_own_address;
+    payload.use_own_address = useOwn ? 1 : 0;
+    if (!useOwn && memberId) {
+      payload.address_line1 = personalAddress.line1 || '';
+      payload.address_line2 = personalAddress.line2 || '';
+      payload.city = personalAddress.city || '';
+      payload.state = personalAddress.state || '';
+      payload.zip_code = personalAddress.zip || '';
+    }
     try {
       if (memberId) { await api.put(`/members/${memberId}`, payload); }
       else { const { data } = await api.post('/members', payload); memberId = data.member_id; }
@@ -250,4 +332,17 @@ async function editMember(memberId) {
       location.hash = `#/members/${memberId}`; router();
     } catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
+}
+
+/* ---- delete a member ---- */
+async function deleteMember(memberId, name) {
+  if (!confirm(t('member.del_confirm', { name }))) return;
+  try {
+    await api.delete(`/members/${memberId}`);
+    toast(t('member.deleted'), 'success');
+    location.hash = '#/addressbook';
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
 }

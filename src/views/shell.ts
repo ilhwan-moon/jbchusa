@@ -4,7 +4,7 @@ export function renderShell(): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JBCHUSA · 교인관리시스템</title>
+  <title>JBCHUSA · 성도교제관리</title>
   <link rel="icon" type="image/png" href="/static/logo.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />

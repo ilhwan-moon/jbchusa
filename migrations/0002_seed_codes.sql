@@ -44,13 +44,13 @@ INSERT OR IGNORE INTO roles (code, name, description) VALUES
 ('ZONE_LEADER',   '구역장',       '자기 구역 출석/명단 관리'),
 ('DEPT_LEADER',   '부서장',       '자기 부서 관리'),
 ('STAFF',         '직원',         '행정 업무'),
-('MEMBER',        '일반교인',     '본인 정보 조회');
+('MEMBER',        '일반성도',     '본인 정보 조회');
 
 -- 권한
 INSERT OR IGNORE INTO permissions (code, name, category) VALUES
-('member.view',     '교인 조회',      '교인'),
-('member.edit',     '교인 등록/수정',  '교인'),
-('member.delete',   '교인 삭제',      '교인'),
+('member.view',     '성도 조회',      '성도'),
+('member.edit',     '성도 등록/수정',  '성도'),
+('member.delete',   '성도 삭제',      '성도'),
 ('attendance.view', '출석 조회',      '출석'),
 ('attendance.edit', '출석 입력/수정',  '출석'),
 ('meeting.manage',  '모임 관리',      '출석'),
