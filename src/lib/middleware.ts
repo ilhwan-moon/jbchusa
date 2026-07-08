@@ -43,7 +43,7 @@ export function requirePermission(perm: string) {
 // Builds the full SessionUser (roles + permissions) from DB given a user_id
 export async function buildSessionUser(DB: D1Database, userId: number): Promise<SessionUser | null> {
   const u = await DB.prepare(
-    `SELECT user_id, church_id, username, COALESCE(display_name, username) AS display_name, member_id FROM users WHERE user_id = ? AND is_active = 1`
+    `SELECT user_id, church_id, username, email, COALESCE(display_name, username) AS display_name, member_id FROM users WHERE user_id = ? AND is_active = 1`
   ).bind(userId).first<any>()
   if (!u) return null
 
@@ -63,6 +63,7 @@ export async function buildSessionUser(DB: D1Database, userId: number): Promise<
     church_id: u.church_id,
     username: u.username,
     display_name: u.display_name,
+    email: u.email,
     member_id: u.member_id,
     roles: (roles.results || []).map((r) => r.code),
     permissions: (perms.results || []).map((p) => p.code),

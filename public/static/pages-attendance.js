@@ -139,6 +139,8 @@ async function attendanceDashboard(content) {
   list.innerHTML = (md.meetings||[]).map(meetingRow).join('') || `<div class="text-sm text-slate-400 py-6 text-center">${t('att.no_meetings')}</div>`;
 
   const trendSelect = el('trend-period');
+  const trendFromYear = el('trend-from-year');
+  const trendToYear = el('trend-to-year');
   const dashFromYear = el('dash-from-year');
   const dashToYear = el('dash-to-year');
   const dashFromMonth = el('dash-from-month');
@@ -166,6 +168,8 @@ async function attendanceDashboard(content) {
     const yearOptions = years.map((y)=>`<option value="${y}">${y}</option>`).join('');
     if (dashFromYear) { dashFromYear.innerHTML = yearOptions; dashFromYear.value = String(minYear); }
     if (dashToYear) { dashToYear.innerHTML = yearOptions; dashToYear.value = String(maxYear); }
+    if (trendFromYear) { trendFromYear.innerHTML = yearOptions; trendFromYear.value = String(minYear); }
+    if (trendToYear) { trendToYear.innerHTML = yearOptions; trendToYear.value = String(maxYear); }
     if (dashFromMonth) dashFromMonth.value = '';
     if (dashToMonth) dashToMonth.value = '';
   };
@@ -293,13 +297,29 @@ async function attendanceDashboard(content) {
       dashFromMonth.value = String(start.getMonth() + 1).padStart(2, '0');
       dashToYear.value = String(endYear);
       dashToMonth.value = String(endMonth).padStart(2, '0');
+      if (trendFromYear) trendFromYear.value = dashFromYear.value;
+      if (trendToYear) trendToYear.value = dashToYear.value;
     };
 
     if (trendSelect) trendSelect.addEventListener('change', reloadDashboard);
-    if (dashFromYear) dashFromYear.addEventListener('change', reloadDashboard);
-    if (dashToYear) dashToYear.addEventListener('change', reloadDashboard);
+    if (dashFromYear) dashFromYear.addEventListener('change', () => {
+      if (trendFromYear) trendFromYear.value = dashFromYear.value;
+      reloadDashboard();
+    });
+    if (dashToYear) dashToYear.addEventListener('change', () => {
+      if (trendToYear) trendToYear.value = dashToYear.value;
+      reloadDashboard();
+    });
     if (dashFromMonth) dashFromMonth.addEventListener('change', reloadDashboard);
     if (dashToMonth) dashToMonth.addEventListener('change', reloadDashboard);
+    if (trendFromYear) trendFromYear.addEventListener('change', () => {
+      if (dashFromYear) dashFromYear.value = trendFromYear.value;
+      reloadDashboard();
+    });
+    if (trendToYear) trendToYear.addEventListener('change', () => {
+      if (dashToYear) dashToYear.value = trendToYear.value;
+      reloadDashboard();
+    });
     if (dashGroup) dashGroup.addEventListener('change', () => reloadDashboard(true));
     if (dashPreset) {
       dashPreset.value = 'all';

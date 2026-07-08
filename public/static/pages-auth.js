@@ -51,6 +51,7 @@ Pages.login = function () {
     </form>
     <div class="flex items-center gap-3 my-5"><div class="flex-1 h-px bg-slate-200"></div><span class="text-xs text-slate-400">${t('auth.login_with_external')}</span><div class="flex-1 h-px bg-slate-200"></div></div>
     ${oauthButtons()}
+    <div class="text-right text-xs mt-3"><a href="#/reset" class="text-brand-600 font-semibold">${t('auth.forgot_pw')}</a></div>
     <p class="text-center text-sm text-slate-500 mt-6">${t('auth.no_account')} <a href="#/signup" class="text-brand-600 font-semibold">${t('auth.signup')}</a></p>
     <div class="mt-4 text-center text-[11px] text-slate-400">${t('auth.demo_account')} <b>admin</b> / <b>admin1234</b></div>
   `);
@@ -88,8 +89,8 @@ Pages.signup = function () {
         <input name="username" required class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500" placeholder="user01" />
       </div>
       <div>
-        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.email')}</label>
-        <input name="email" type="email" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500" placeholder="user@example.com" />
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.email_required')}</label>
+        <input name="email" type="email" required class="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-brand-500" placeholder="user@example.com" />
       </div>
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.password_min')}</label>
@@ -109,9 +110,14 @@ Pages.signup = function () {
     btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch spin"></i>';
     try {
       const { data } = await api.post('/auth/signup', Object.fromEntries(fd));
-      App.state.user = data.user;
-      toast(t('auth.signup_done'), 'success');
-      location.hash = '#/dashboard';
+      if (data.pending) {
+        toast(t('auth.pending_approval'), 'info');
+        location.hash = '#/login';
+      } else {
+        App.state.user = data.user;
+        toast(t('auth.signup_done'), 'success');
+        location.hash = '#/dashboard';
+      }
     } catch (err) {
       toast(err.response?.data?.error || t('auth.signup_failed'), 'error');
       btn.disabled = false; btn.textContent = t('auth.do_signup');
@@ -150,6 +156,70 @@ async function oauthLogin(provider) {
       location.hash = '#/dashboard';
     } catch (err) {
       toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
+Pages.reset = function (token) {
+  const app = el('app');
+  app.dataset.shell = '';
+  if (!token) {
+    app.innerHTML = authShellHtml(`
+      <h2 class="text-xl font-bold text-slate-800 mb-1">${t('auth.reset_request')}</h2>
+      <p class="text-sm text-slate-500 mb-5">${t('auth.reset_request_desc')}</p>
+      <form id="reset-request-form" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.email_required')}</label>
+          <input name="email" type="email" required class="w-full px-3 py-2.5 border border-slate-300 rounded-lg" placeholder="user@example.com" />
+        </div>
+        <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg">${t('auth.reset_send')}</button>
+      </form>
+      <p class="text-center text-sm text-slate-500 mt-6"><a href="#/login" class="text-brand-600 font-semibold">${t('auth.login')}</a></p>
+    `);
+
+    el('reset-request-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api.post('/auth/password/request', { email: fd.get('email') });
+        toast(t('auth.reset_sent'), 'success');
+        location.hash = '#/login';
+      } catch (err) {
+        toast(err.response?.data?.error || t('auth.reset_failed'), 'error');
+      }
+    });
+    return;
+  }
+
+  app.innerHTML = authShellHtml(`
+    <h2 class="text-xl font-bold text-slate-800 mb-1">${t('auth.reset')}</h2>
+    <p class="text-sm text-slate-500 mb-5">${t('auth.reset_desc')}</p>
+    <form id="reset-form" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.new_password')}</label>
+        <input name="password" type="password" required minlength="6" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg" />
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('auth.confirm_password')}</label>
+        <input name="password2" type="password" required minlength="6" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg" />
+      </div>
+      <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg">${t('auth.reset_apply')}</button>
+    </form>
+    <p class="text-center text-sm text-slate-500 mt-6"><a href="#/login" class="text-brand-600 font-semibold">${t('auth.login')}</a></p>
+  `);
+
+  el('reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const pw = fd.get('password');
+    const pw2 = fd.get('password2');
+    if (pw !== pw2) { toast(t('auth.password_mismatch'), 'error'); return; }
+    try {
+      await api.post('/auth/password/reset', { token, new_password: pw });
+      toast(t('auth.reset_done'), 'success');
+      location.hash = '#/login';
+    } catch (err) {
+      toast(err.response?.data?.error || t('auth.reset_failed'), 'error');
     }
   });
 }

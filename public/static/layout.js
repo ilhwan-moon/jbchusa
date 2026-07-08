@@ -12,6 +12,7 @@ const NAV = [
   { name:'attendance',  key:'nav.attendance',   icon:'fa-clipboard-check' },
   { name:'addressbook', key:'nav.addressbook',     icon:'fa-address-book' },
   { name:'households',  key:'nav.households',   icon:'fa-house-user' },
+  { name:'account',     key:'nav.account',      icon:'fa-user-gear' },
   { name:'admin/users', key:'nav.admin',     icon:'fa-screwdriver-wrench', match:'admin', adminOnly:true },
 ];
 
@@ -112,7 +113,7 @@ function highlightNav(activeName) {
     if (href === cur || (href.split('/')[0] === cur.split('/')[0] && href.split('/')[1] === cur.split('/')[1])) a.classList.add('active');
     else if (href.split('/')[0] === cur.split('/')[0] && !href.includes('/') ) a.classList.add('active');
   });
-  const titleMap = { dashboard:'nav.dashboard', attendance:'nav.attendance', addressbook:'nav.addressbook', households:'nav.households', admin:'nav.admin', members:'nav.member_detail', orgs:'nav.org_view' };
+  const titleMap = { dashboard:'nav.dashboard', attendance:'nav.attendance', addressbook:'nav.addressbook', households:'nav.households', admin:'nav.admin', members:'nav.member_detail', orgs:'nav.org_view', account:'nav.account' };
   // for org pages, use the specific category label when available
   let titleKey = titleMap[r.name];
   if (r.name === 'orgs' && r.sub && r.sub[0] && window.CATEGORY_META && CATEGORY_META[r.sub[0]]) {

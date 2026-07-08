@@ -60,7 +60,12 @@ Pages.addressbook = async function (content) {
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div><h2 class="text-xl font-bold text-slate-800">${t('ab.title')}</h2><p class="text-sm text-slate-500">${t('ab.desc')}</p></div>
-      ${canEdit?`<button onclick="editMember(null)" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-user-plus mr-1"></i>${t('ab.add_member')}</button>`:''}
+      <div class="flex items-center gap-2">
+        <button onclick="downloadAddressbook()" class="px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50"><i class="fas fa-file-excel mr-1 text-emerald-600"></i>${t('ab.export')}</button>
+        <button onclick="downloadAddressbookTemplate()" class="px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50"><i class="fas fa-download mr-1"></i>${t('ab.template')}</button>
+        ${canEdit?`<button onclick="openAddressbookUpload()" class="px-3 py-2 rounded-lg text-sm font-semibold border border-brand-200 text-brand-700 hover:bg-brand-50"><i class="fas fa-upload mr-1"></i>${t('ab.import')}</button>
+        <button onclick="editMember(null)" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-user-plus mr-1"></i>${t('ab.add_member')}</button>`:''}
+      </div>
     </div>
     <div class="card p-3 mb-4">
       <div class="flex gap-2">
@@ -96,6 +101,213 @@ Pages.addressbook = async function (content) {
   el('ab-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250); });
   el('ab-status').addEventListener('change', load);
   load();
+};
+
+const ADDRESSBOOK_COLUMNS = [
+  { key: 'first_name', label: 'First Name', required: true },
+  { key: 'last_name', label: 'Last Name', required: true },
+  { key: 'korean_name', label: 'Korean Name' },
+  { key: 'preferred_name', label: 'Preferred Name' },
+  { key: 'gender', label: 'Gender (M/F)' },
+  { key: 'title', label: 'Title' },
+  { key: 'status', label: 'Status' },
+  { key: 'member_type', label: 'Member Type' },
+  { key: 'employment_type', label: 'Employment Type' },
+  { key: 'birth_date', label: 'Birth Date (YYYY-MM-DD)' },
+  { key: 'organizations', label: 'Organizations' },
+  { key: 'positions', label: 'Positions' },
+  { key: 'mobile', label: 'Mobile' },
+  { key: 'email', label: 'Email' },
+  { key: 'home', label: 'Home Phone' },
+  { key: 'office', label: 'Office Phone' },
+  { key: 'address_line1', label: 'Address Line 1' },
+  { key: 'address_line2', label: 'Address Line 2' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'zip_code', label: 'ZIP' },
+  { key: 'note', label: 'Note' },
+];
+
+function normalizeHeader(value) {
+  if (value == null) return '';
+  return String(value).trim().toLowerCase().replace(/\n/g, ' ');
+}
+
+function mapAddressbookHeader(headerRow) {
+  const headerMap = {};
+  const keyLookup = {};
+  ADDRESSBOOK_COLUMNS.forEach((col) => {
+    keyLookup[normalizeHeader(col.key)] = col.key;
+    keyLookup[normalizeHeader(col.label)] = col.key;
+  });
+  headerRow.forEach((cell, idx) => {
+    const key = keyLookup[normalizeHeader(cell)];
+    if (key) headerMap[key] = idx;
+  });
+  return headerMap;
+}
+
+async function downloadAddressbook() {
+  const ok = await ensureXlsx();
+  if (!ok) { toast(t('common.failed'), 'error'); return; }
+  const q = el('ab-search')?.value?.trim() || '';
+  const status = el('ab-status')?.value || '';
+  try {
+    const { data } = await api.get('/members/export', { params: { q, status } });
+    const rows = (data.members || []).map((m) => {
+      const out = {};
+      ADDRESSBOOK_COLUMNS.forEach((col) => { out[col.key] = m[col.key] ?? ''; });
+      return out;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows, { header: ADDRESSBOOK_COLUMNS.map((c) => c.key) });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'AddressBook');
+    XLSX.writeFile(wb, `addressbook_${new Date().toISOString().slice(0,10)}.xlsx`);
+  } catch (err) {
+    console.error('addressbook export failed', err);
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
+}
+
+async function downloadAddressbookTemplate() {
+  const ok = await ensureXlsx();
+  if (!ok) { toast(t('common.failed'), 'error'); return; }
+  try {
+    const header = ADDRESSBOOK_COLUMNS.map((c) => c.key);
+    const labels = ADDRESSBOOK_COLUMNS.map((c) => `${c.label}${c.required ? ' *' : ''}`);
+    const example = ['John','Doe','홍길동','John','M','집사','활동','성도','봉사자','1990-01-01','청년부','집사','010-1234-5678','john@example.com','','','123 Street','Apt 101','Los Angeles','CA','90001','메모'];
+    const ws = XLSX.utils.aoa_to_sheet([header, labels, example]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    XLSX.writeFile(wb, 'addressbook_template.xlsx');
+  } catch (err) {
+    console.error('addressbook template failed', err);
+    toast(t('common.failed'), 'error');
+  }
+}
+
+function openAddressbookUpload() {
+  const box = h(`<div class="p-6">
+    <h3 class="text-lg font-bold mb-2">${t('ab.upload_title')}</h3>
+    <p class="text-sm text-slate-500 mb-4">${t('ab.upload_desc')}</p>
+    <form id="ab-upload-form" class="space-y-3">
+      <input type="file" id="ab-upload-file" accept=".xlsx,.xls" class="w-full px-3 py-2.5 border rounded-lg" />
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('ab.upload_btn')}</button>
+      </div>
+    </form>
+  </div>`);
+  openModal(box);
+  box.querySelector('#ab-upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = box.querySelector('#ab-upload-file');
+    const file = input.files?.[0];
+    if (!file) { toast(t('ab.file_required'), 'error'); return; }
+    const ok = await ensureXlsx();
+    if (!ok) { toast(t('common.failed'), 'error'); return; }
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!rows.length) throw new Error(t('ab.file_required'));
+      const headerRow = rows[0];
+      const headerMap = mapAddressbookHeader(headerRow);
+      const labelRow = rows[1] || [];
+      const labelMatches = labelRow.some((cell) => ADDRESSBOOK_COLUMNS.some((col) => normalizeHeader(col.label) === normalizeHeader(cell)));
+      const dataStartIndex = labelMatches ? 2 : 1;
+      const dataRows = rows.slice(dataStartIndex).filter((r) => r.some((v) => String(v).trim() !== ''));
+      const payload = dataRows.map((r) => {
+        const obj = {};
+        ADDRESSBOOK_COLUMNS.forEach((col) => {
+          const idx = headerMap[col.key];
+          if (idx != null) obj[col.key] = r[idx];
+        });
+        return obj;
+      }).filter((r) => r.first_name || r.last_name || r.korean_name);
+      if (!payload.length) { toast(t('ab.file_required'), 'error'); return; }
+      const { data } = await api.post('/members/bulk', { members: payload });
+      if (data.errors && data.errors.length) {
+        toast(`${t('ab.import_success', { n: data.created })} (${data.errors.length}${t('ab.import_errors')})`, 'warn');
+      } else {
+        toast(t('ab.import_success', { n: data.created }), 'success');
+      }
+      closeModal();
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('ab.import_failed'), 'error');
+    }
+  });
+}
+
+/* ---------------- Account ---------------- */
+Pages.account = async function (content) {
+  content.innerHTML = loadingHtml();
+  const { data } = await api.get('/auth/profile');
+  const profile = data.profile || {};
+  content.innerHTML = `
+    <div class="mb-4"><h2 class="text-xl font-bold text-slate-800">${t('account.title')}</h2><p class="text-sm text-slate-500">${t('account.desc')}</p></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="card p-5">
+        <h3 class="font-bold text-slate-700 mb-3">${t('account.profile_title')}</h3>
+        <form id="account-profile" class="space-y-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.name')}</label>
+            <input name="display_name" value="${esc(profile.display_name || '')}" class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.email')}</label>
+            <input name="email" type="email" required value="${esc(profile.email || '')}" class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+          <div class="flex justify-end"><button type="submit" class="px-4 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+        </form>
+      </div>
+      <div class="card p-5">
+        <h3 class="font-bold text-slate-700 mb-3">${t('account.password_title')}</h3>
+        <form id="account-password" class="space-y-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.current_password')}</label>
+            <input name="current_password" type="password" required class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.new_password')}</label>
+            <input name="new_password" type="password" required minlength="6" class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.confirm_password')}</label>
+            <input name="confirm_password" type="password" required minlength="6" class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+          <div class="flex justify-end"><button type="submit" class="px-4 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('account.change_password')}</button></div>
+        </form>
+      </div>
+    </div>`;
+
+  el('account-profile').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target));
+    try {
+      const { data: resp } = await api.put('/auth/profile', payload);
+      App.state.user = resp.user || App.state.user;
+      toast(t('account.profile_saved'), 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+
+  el('account-password').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const newPw = fd.get('new_password');
+    const confirm = fd.get('confirm_password');
+    if (newPw !== confirm) { toast(t('account.password_mismatch'), 'error'); return; }
+    try {
+      await api.put('/auth/password', {
+        current_password: fd.get('current_password'),
+        new_password: newPw,
+      });
+      toast(t('account.password_saved'), 'success');
+      e.target.reset();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
 };
 
 /* ---------------- Households ---------------- */
@@ -298,7 +510,7 @@ async function removeFromHousehold(hhId, memberId) {
 /* ---------------- Admin ---------------- */
 Pages.admin = async function (content, tab) {
   if (!isAdmin()) { content.innerHTML = `<div class="card p-12 text-center text-slate-400"><i class="fas fa-lock text-2xl mb-2"></i><p>${t('common.no_permission')}</p></div>`; return; }
-  const tabs = [['users',t('admin.tab.users'),'fa-users-gear'],['positions',t('admin.tab.positions'),'fa-id-badge'],['languages',t('admin.tab.languages'),'fa-language'],['orgs',t('admin.tab.orgs'),'fa-sitemap'],['calendar',t('admin.tab.calendar'),'fa-calendar-days']];
+  const tabs = [['users',t('admin.tab.users'),'fa-users-gear'],['positions',t('admin.tab.positions'),'fa-id-badge'],['languages',t('admin.tab.languages'),'fa-language'],['orgs',t('admin.tab.orgs'),'fa-sitemap'],['calendar',t('admin.tab.calendar'),'fa-calendar-days'],['email',t('admin.tab.email'),'fa-envelope']];
   content.innerHTML = `
     <h2 class="text-xl font-bold text-slate-800 mb-4">${t('admin.title')}</h2>
     <div class="flex gap-2 mb-4 overflow-x-auto">${tabs.map(([t,l,i])=>`
@@ -310,6 +522,7 @@ Pages.admin = async function (content, tab) {
   if (tab === 'languages') return adminLanguages(body);
   if (tab === 'orgs') return adminOrgs(body);
   if (tab === 'calendar') return adminCalendar(body);
+  if (tab === 'email') return adminEmail(body);
 };
 
 async function adminUsers(body) {
@@ -319,7 +532,10 @@ async function adminUsers(body) {
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-slate-50 text-slate-500 text-xs"><tr><th class="text-left p-3">${t('admin.th.user')}</th><th class="text-left p-3 hidden sm:table-cell">${t('admin.th.email')}</th><th class="text-left p-3">${t('admin.th.role')}</th><th class="text-left p-3 hidden md:table-cell">${t('admin.th.login')}</th><th class="p-3">${t('admin.th.status')}</th></tr></thead>
-        <tbody>${(ud.users||[]).map((u)=>`
+        <tbody>${(ud.users||[]).map((u)=>{
+          const statusLabel = u.is_active ? t('admin.active') : t('admin.pending');
+          const statusClass = u.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600';
+          return `
           <tr class="border-t border-slate-100">
             <td class="p-3"><div class="font-medium text-slate-800">${esc(u.display_name||u.username)}</div><div class="text-xs text-slate-400">@${esc(u.username)}${u.oauth_provider?` · ${esc(u.oauth_provider)}`:''}</div></td>
             <td class="p-3 hidden sm:table-cell text-slate-500">${esc(u.email||'-')}</td>
@@ -327,12 +543,16 @@ async function adminUsers(body) {
             <td class="p-3 hidden md:table-cell text-xs text-slate-400">${u.last_login_at?esc(u.last_login_at.slice(0,10)):'-'}</td>
             <td class="p-3 text-center">
               <div class="flex items-center justify-center gap-2">
+                <span class="badge ${statusClass}">${statusLabel}</span>
+                ${u.is_active ? '' : `<button onclick="approveUser(${u.user_id})" class="text-emerald-500" title="${t('admin.tip.approve')}"><i class="fas fa-user-check"></i></button>`}
                 <button onclick="editUserRoles(${u.user_id}, '${esc(u.roles||'')}')" class="text-slate-400 hover:text-brand-600" title="${t('admin.tip.role')}"><i class="fas fa-user-tag"></i></button>
                 <button onclick="resetUserPw(${u.user_id})" class="text-slate-400 hover:text-amber-600" title="${t('admin.tip.password')}"><i class="fas fa-key"></i></button>
-                <button onclick="toggleUser(${u.user_id}, ${u.is_active?0:1})" class="${u.is_active?'text-emerald-500':'text-slate-300'}" title="${t('admin.tip.active')}"><i class="fas fa-power-off"></i></button>
+                <button onclick="toggleUser(${u.user_id}, ${u.is_active?0:1})" class="${u.is_active?'text-emerald-500':'text-slate-300'}" title="${u.is_active ? t('admin.tip.deactivate') : t('admin.tip.activate')}"><i class="fas fa-power-off"></i></button>
+                <button onclick="deleteUser(${u.user_id}, '${esc(u.display_name||u.username)}')" class="text-slate-400 hover:text-red-500" title="${t('admin.tip.delete')}"><i class="fas fa-trash"></i></button>
               </div>
             </td>
-          </tr>`).join('')}</tbody>
+          </tr>`;
+        }).join('')}</tbody>
       </table>
     </div>
     <input type="hidden" id="roles-cache" value='${esc(JSON.stringify(rd.roles))}' />`;
@@ -345,7 +565,7 @@ async function createUser() {
     <form id="u-form" class="space-y-3">
       <input name="display_name" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_name_ph')}" />
       <input name="username" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_id_ph')}" />
-      <input name="email" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('member.email')}" />
+      <input name="email" type="email" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_email_ph')}" />
       <input name="password" type="password" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_pw_ph')}" />
       <select name="role_id" class="w-full px-3 py-2.5 border rounded-lg">${roleOpts}</select>
       <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.add')}</button></div>
@@ -380,19 +600,39 @@ async function resetUserPw(userId) {
   try { await api.put(`/admin/users/${userId}/password`, { password: pw }); toast(t('admin.pw_changed'), 'success'); }
   catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
 }
+async function approveUser(userId) {
+  await api.put(`/admin/users/${userId}/active`, { is_active: 1 });
+  toast(t('admin.approved'), 'success'); router();
+}
+
 async function toggleUser(userId, active) {
   await api.put(`/admin/users/${userId}/active`, { is_active: active });
   toast(t('admin.status_changed'), 'success'); router();
+}
+
+async function deleteUser(userId, name) {
+  if (!confirm(t('admin.user_delete_confirm', { name }))) return;
+  try {
+    await api.delete(`/admin/users/${userId}`);
+    toast(t('admin.user_deleted'), 'success');
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
 }
 
 async function adminPositions(body) {
   const { data } = await api.get('/admin/positions');
   const grouped = {};
   data.positions.forEach((p)=>{ (grouped[p.position_type]=grouped[p.position_type]||[]).push(p); });
+  window.__positionsCache = data.positions || [];
   body.innerHTML = `
     <div class="flex justify-end mb-3"><button onclick="addPosition()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_position')}</button></div>
     ${Object.keys(grouped).map((pt)=>`<div class="card p-4 mb-3"><div class="text-xs font-bold text-slate-400 uppercase mb-2">${t('ptype.' + pt)}</div>
-      <div class="flex flex-wrap gap-2">${grouped[pt].map((p)=>`<span class="badge bg-slate-100 text-slate-600 text-sm py-1.5">${esc(p.name)} <button onclick="delPosition(${p.position_id})" class="ml-1 text-slate-300 hover:text-red-500"><i class="fas fa-times"></i></button></span>`).join('')}</div></div>`).join('')}`;
+      <div class="flex flex-wrap gap-2">${grouped[pt].map((p)=>`<span class="badge bg-slate-100 text-slate-600 text-sm py-1.5">${esc(p.name)}
+        <button onclick="editPosition(${p.position_id})" class="ml-1 text-slate-300 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen"></i></button>
+        <button onclick="delPosition(${p.position_id})" class="ml-1 text-slate-300 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-times"></i></button>
+      </span>`).join('')}</div></div>`).join('')}`;
 }
 async function addPosition() {
   const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('admin.add_position')}</h3>
@@ -407,6 +647,24 @@ async function addPosition() {
     e.preventDefault();
     try { await api.post('/admin/positions', Object.fromEntries(new FormData(e.target)));
       closeModal(); toast(t('admin.added'), 'success'); router(); } catch (err) { toast(t('common.failed'), 'error'); }
+  });
+}
+async function editPosition(positionId) {
+  const positions = window.__positionsCache || [];
+  const p = positions.find((item) => String(item.position_id) === String(positionId));
+  if (!p) return;
+  const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('admin.edit_position')}</h3>
+    <form id="p-edit-form" class="space-y-3">
+      <input name="name" required value="${esc(p.name||'')}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.position_name')}" />
+      <select name="position_type" class="w-full px-3 py-2.5 border rounded-lg">${['임원','조직장','교역자','교사','학생','직원','일반'].map((pt)=>`<option value="${pt}" ${p.position_type===pt?'selected':''}>${t('ptype.'+pt)}</option>`).join('')}</select>
+      <input name="rank_order" type="number" value="${p.rank_order ?? 99}" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.rank_order')}" />
+      <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#p-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try { await api.put(`/admin/positions/${positionId}`, Object.fromEntries(new FormData(e.target)));
+      closeModal(); toast(t('common.saved'), 'success'); router(); } catch (err) { toast(t('common.failed'), 'error'); }
   });
 }
 async function delPosition(id) { if (!confirm(t('admin.del_confirm'))) return; await api.delete(`/admin/positions/${id}`); toast(t('admin.deleted'),'success'); router(); }
@@ -447,6 +705,45 @@ async function adminCalendar(body) {
       toast(err.response?.data?.error || t('common.failed'), 'error');
     }
   });
+}
+
+async function adminEmail(body) {
+  const { data } = await api.get('/admin/email/status');
+  const status = data.status || {};
+  const statusBadge = (ok) => `<span class="badge ${ok ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}">${ok ? t('admin.email_ready') : t('admin.email_missing')}</span>`;
+  const rows = [
+    { key: 'client_id', label: t('admin.email_client_id') },
+    { key: 'client_secret', label: t('admin.email_client_secret') },
+    { key: 'refresh_token', label: t('admin.email_refresh_token') },
+    { key: 'sender', label: t('admin.email_sender') },
+    { key: 'base_url', label: t('admin.email_base_url') },
+  ];
+  body.innerHTML = `
+    <div class="card p-5 mb-4">
+      <h3 class="text-lg font-bold text-slate-800 mb-1">${t('admin.email_title')}</h3>
+      <p class="text-sm text-slate-500 mb-4">${t('admin.email_desc')}</p>
+      <div class="space-y-2">
+        ${rows.map((r)=>`
+          <div class="flex items-center justify-between text-sm border-b border-slate-100 pb-2">
+            <span class="text-slate-600">${r.label}</span>
+            ${statusBadge(status[r.key])}
+          </div>
+        `).join('')}
+      </div>
+      <div class="mt-4 text-xs text-slate-500">
+        <div>${t('admin.email_sender_value')}: <span class="font-semibold text-slate-700">${esc(data.sender || '-')}</span></div>
+        <div>${t('admin.email_base_url_value')}: <span class="font-semibold text-slate-700">${esc(data.base_url || '-')}</span></div>
+      </div>
+    </div>
+    <div class="card p-5">
+      <h4 class="font-bold text-slate-700 mb-2">${t('admin.email_setup_title')}</h4>
+      <div class="text-sm text-slate-600 space-y-2">
+        <div>${t('admin.email_setup_local')}</div>
+        <div class="text-xs text-slate-500">.dev.vars: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_SENDER, APP_BASE_URL</div>
+        <div>${t('admin.email_setup_prod')}</div>
+        <div class="text-xs text-slate-500">wrangler secret put GMAIL_CLIENT_ID (etc.) 또는 Cloudflare Pages 환경변수 설정</div>
+      </div>
+    </div>`;
 }
 
 async function addLanguage() {

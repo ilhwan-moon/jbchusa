@@ -84,7 +84,7 @@ function parseHash() {
 async function router() {
   const r = parseHash();
   // not logged in -> force login/signup
-  if (!App.state.user && !['login','signup'].includes(r.name)) { location.hash = '#/login'; return; }
+  if (!App.state.user && !['login','signup','reset'].includes(r.name)) { location.hash = '#/login'; return; }
   if (App.state.user && ['login','signup'].includes(r.name)) { location.hash = '#/dashboard'; return; }
 
   if (r.name === 'login') return Pages.login();
@@ -102,6 +102,8 @@ async function router() {
       case 'members': return Pages.memberDetail(content, r.sub[0]);
       case 'households': return Pages.households(content, r.sub[0]);
       case 'admin': return Pages.admin(content, r.sub[0] || 'users');
+      case 'account': return Pages.account(content);
+      case 'reset': return Pages.reset(r.params.token || '');
       default: content.innerHTML = `<div class="p-8 text-center text-slate-400">${t('common.none_found')}</div>`;
     }
   } catch (e) {
@@ -125,6 +127,33 @@ function ensureChart() {
     document.head.appendChild(s);
   });
   return __chartPromise;
+}
+
+/* ---------- lazy XLSX loader (for address book import/export) ---------- */
+let __xlsxPromise = null;
+function ensureXlsx() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve(true);
+  if (__xlsxPromise) return __xlsxPromise;
+  const sources = [
+    '/static/xlsx.full.min.js',
+    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
+  ];
+  __xlsxPromise = (async () => {
+    for (const src of sources) {
+      const ok = await new Promise((resolve) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+      if (ok && typeof XLSX !== 'undefined') return true;
+    }
+    return false;
+  })();
+  return __xlsxPromise;
 }
 
 function hideBoot() {

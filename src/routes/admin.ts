@@ -12,8 +12,15 @@ admin.get('/positions', async (c) => {
 admin.post('/positions', async (c) => {
   const b = await c.req.json<any>()
   if (!b.name) return c.json({ error: '직분명 필요' }, 400)
-  await c.env.DB.prepare(`INSERT INTO positions (name, position_type, rank_order) VALUES (?, ?, ?)`)
+  await c.env.DB.prepare(`INSERT INTO positions (name, position_type, rank_order) VALUES (?, ?, ?)`) 
     .bind(b.name, b.position_type || '일반', b.rank_order ?? 99).run()
+  return c.json({ ok: true })
+})
+admin.put('/positions/:id', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '직분명 필요' }, 400)
+  await c.env.DB.prepare(`UPDATE positions SET name=?, position_type=?, rank_order=? WHERE position_id=?`)
+    .bind(b.name, b.position_type || '일반', b.rank_order ?? 99, c.req.param('id')).run()
   return c.json({ ok: true })
 })
 admin.delete('/positions/:id', async (c) => {
@@ -115,10 +122,11 @@ admin.get('/roles', async (c) => {
 admin.post('/users', async (c) => {
   const b = await c.req.json<any>()
   if (!b.username || !b.password) return c.json({ error: '아이디/비밀번호 필요' }, 400)
+  if (!b.email) return c.json({ error: '이메일 필요' }, 400)
   const hash = await hashPassword(b.password)
   const res = await c.env.DB.prepare(
     `INSERT INTO users (church_id, username, email, password_hash, display_name, member_id, is_active) VALUES (1, ?, ?, ?, ?, ?, 1)`
-  ).bind(b.username, b.email || null, hash, b.display_name || b.username, b.member_id || null).run()
+  ).bind(b.username, b.email, hash, b.display_name || b.username, b.member_id || null).run()
   const userId = res.meta.last_row_id
   if (b.role_id) {
     await c.env.DB.prepare(`INSERT OR IGNORE INTO user_roles (user_id, role_id, scope_group_id) VALUES (?, ?, ?)`)
@@ -149,6 +157,32 @@ admin.put('/users/:id/password', async (c) => {
   const hash = await hashPassword(password)
   await c.env.DB.prepare(`UPDATE users SET password_hash=? WHERE user_id=?`).bind(hash, c.req.param('id')).run()
   return c.json({ ok: true })
+})
+
+admin.delete('/users/:id', async (c) => {
+  const id = c.req.param('id')
+  const current = c.get('user')
+  if (current && String(current.user_id) === String(id)) {
+    return c.json({ error: '현재 로그인한 사용자는 삭제할 수 없습니다.' }, 400)
+  }
+  await c.env.DB.prepare(`DELETE FROM user_roles WHERE user_id=?`).bind(id).run()
+  await c.env.DB.prepare(`DELETE FROM users WHERE user_id=?`).bind(id).run()
+  return c.json({ ok: true })
+})
+
+// ---- Gmail email settings status ----
+admin.get('/email/status', async (c) => {
+  return c.json({
+    status: {
+      client_id: Boolean(c.env.GMAIL_CLIENT_ID),
+      client_secret: Boolean(c.env.GMAIL_CLIENT_SECRET),
+      refresh_token: Boolean(c.env.GMAIL_REFRESH_TOKEN),
+      sender: Boolean(c.env.GMAIL_SENDER),
+      base_url: Boolean(c.env.APP_BASE_URL),
+    },
+    sender: c.env.GMAIL_SENDER || null,
+    base_url: c.env.APP_BASE_URL || null,
+  })
 })
 
 export default admin

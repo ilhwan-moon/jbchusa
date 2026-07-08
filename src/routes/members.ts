@@ -162,6 +162,120 @@ members.get('/', async (c) => {
   return c.json({ members: rows.results })
 })
 
+// Export members for Excel
+members.get('/export', async (c) => {
+  const q = (c.req.query('q') || '').trim()
+  const status = c.req.query('status') || ''
+  const churchId = 1
+  let sql = `
+    SELECT m.member_id, m.first_name, m.last_name, m.korean_name, m.preferred_name,
+      m.gender, m.title, m.status, m.member_type, m.employment_type, m.birth_date,
+      CASE WHEN m.use_own_address = 1 THEN COALESCE(m.address_line1, h.address_line1) ELSE h.address_line1 END AS address_line1,
+      CASE WHEN m.use_own_address = 1 THEN COALESCE(m.address_line2, h.address_line2) ELSE h.address_line2 END AS address_line2,
+      CASE WHEN m.use_own_address = 1 THEN COALESCE(m.city, h.city) ELSE h.city END AS city,
+      CASE WHEN m.use_own_address = 1 THEN COALESCE(m.state, h.state) ELSE h.state END AS state,
+      CASE WHEN m.use_own_address = 1 THEN COALESCE(m.zip_code, h.zip_code) ELSE h.zip_code END AS zip_code,
+      h.household_name,
+      (SELECT GROUP_CONCAT(DISTINCT g.name) FROM member_assignments ma JOIN org_groups g ON ma.group_id = g.group_id WHERE ma.member_id = m.member_id AND ma.is_active = 1) AS organizations,
+      (SELECT GROUP_CONCAT(DISTINCT p.name) FROM member_assignments ma JOIN positions p ON ma.position_id = p.position_id WHERE ma.member_id = m.member_id AND ma.is_active = 1) AS positions,
+      (SELECT value FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.contact_type='mobile' AND mc.is_primary=1 LIMIT 1) AS mobile,
+      (SELECT value FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.contact_type='email' LIMIT 1) AS email,
+      (SELECT value FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.contact_type='home' LIMIT 1) AS home,
+      (SELECT value FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.contact_type='office' LIMIT 1) AS office
+    FROM members m
+    LEFT JOIN households h ON m.household_id = h.household_id
+    WHERE m.church_id = ?`
+  const binds: any[] = [churchId]
+  if (q) {
+    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.preferred_name LIKE ?
+      OR EXISTS (SELECT 1 FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.value LIKE ?)
+      OR h.home_phone LIKE ?)`
+    const like = `%${q}%`
+    binds.push(like, like, like, like, like, like)
+  }
+  if (status) {
+    sql += ` AND m.status = ?`
+    binds.push(status)
+  }
+  sql += ` ORDER BY m.last_name, m.first_name LIMIT 1000`
+  const rows = await c.env.DB.prepare(sql).bind(...binds).all()
+  return c.json({ members: rows.results })
+})
+
+// Bulk import members (Excel upload)
+members.post('/bulk', async (c) => {
+  const body = await c.req.json<any>()
+  const items: any[] = Array.isArray(body?.members) ? body.members : []
+  if (!items.length) return c.json({ error: '업로드할 데이터가 없습니다.' }, 400)
+  if (items.length > 300) return c.json({ error: '한 번에 최대 300명까지 업로드할 수 있습니다.' }, 400)
+
+  const clean = (val: any) => {
+    if (val == null) return null
+    const s = String(val).trim()
+    return s === '' ? null : s
+  }
+  const normGender = (val: any) => {
+    const s = clean(val)
+    if (!s) return null
+    const up = s.toUpperCase()
+    if (['M', 'MALE', '남', '남자', '형제'].includes(up)) return 'M'
+    if (['F', 'FEMALE', '여', '여자', '자매'].includes(up)) return 'F'
+    return s
+  }
+
+  const errors: { row: number; error: string }[] = []
+  let created = 0
+
+  for (let i = 0; i < items.length; i++) {
+    const row = items[i] || {}
+    const firstName = clean(row.first_name)
+    const lastName = clean(row.last_name)
+    if (!firstName || !lastName) {
+      errors.push({ row: i + 1, error: '이름(First/Last) 필수' })
+      continue
+    }
+    try {
+      const hasAddress = !!(clean(row.address_line1) || clean(row.address_line2) || clean(row.city) || clean(row.state) || clean(row.zip_code))
+      const res = await c.env.DB.prepare(
+        `INSERT INTO members (church_id, first_name, last_name, korean_name, preferred_name,
+           gender, title, birth_date, member_type, employment_type, status, note,
+           use_own_address, address_line1, address_line2, city, state, zip_code)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        firstName,
+        lastName,
+        clean(row.korean_name),
+        clean(row.preferred_name),
+        normGender(row.gender),
+        clean(row.title),
+        clean(row.birth_date),
+        clean(row.member_type) || '성도',
+        clean(row.employment_type) || '봉사자',
+        clean(row.status) || '활동',
+        clean(row.note),
+        hasAddress ? 1 : 0,
+        clean(row.address_line1),
+        clean(row.address_line2),
+        clean(row.city),
+        clean(row.state),
+        clean(row.zip_code)
+      ).run()
+
+      const memberId = res.meta.last_row_id as number
+      if (clean(row.mobile)) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'mobile', ?, 1)`).bind(memberId, clean(row.mobile)).run()
+      if (clean(row.home)) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'home', ?, 0)`).bind(memberId, clean(row.home)).run()
+      if (clean(row.office)) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'office', ?, 0)`).bind(memberId, clean(row.office)).run()
+      if (clean(row.email)) await c.env.DB.prepare(`INSERT INTO member_contacts (member_id, contact_type, value, is_primary) VALUES (?, 'email', ?, 0)`).bind(memberId, clean(row.email)).run()
+
+      created += 1
+    } catch (err: any) {
+      errors.push({ row: i + 1, error: err?.message || '저장 실패' })
+    }
+  }
+
+  return c.json({ created, errors })
+})
+
 // Member detail (full)
 members.get('/:id', async (c) => {
   const id = c.req.param('id')
