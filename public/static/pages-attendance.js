@@ -1103,9 +1103,14 @@ async function showMemberPopup(memberId) {
         ...allNotes.filter((n) => n.note_type==='testimony').map((n) => ({ _type:'meeting', _date:(n.meeting_date||'').slice(0,10), ...n })),
       ].sort((a,b) => b._date > a._date ? 1 : b._date < a._date ? -1 : 0);
 
+      const stripHtml = (html) => {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        return (tmp.textContent || tmp.innerText || '').trim();
+      };
       const renderPTItem = (item, type) => {
-        const date = item._date || item.prayer_date || '';
-        const content = item.content || '';
+        const date    = item._date || item.prayer_date || '';
+        const rawText = stripHtml(item.content || '');
         const source  = item._type === 'meeting'
           ? `<span class="text-xs text-brand-400"><i class="fas fa-people-roof mr-0.5"></i>${esc(item.meeting_title||'')}</span>`
           : `<span class="text-xs text-slate-400">${t('member.direct_register')||'직접등록'}</span>`;
@@ -1116,7 +1121,7 @@ async function showMemberPopup(memberId) {
             <span class="text-xs text-slate-400">${esc(date)}</span>
             ${source}
           </div>
-          <p class="text-xs text-slate-700 line-clamp-3 leading-relaxed">${esc(content)}</p>
+          <p class="text-xs text-slate-700 line-clamp-3 leading-relaxed whitespace-pre-line">${esc(rawText)}</p>
         </div>`;
       };
 
