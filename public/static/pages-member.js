@@ -12,6 +12,7 @@ Pages.memberDetail = async function (content, memberId) {
   const name = nativeName(m);
   const canEdit = hasPerm('member.edit');
   const meetingNotes = mnData.notes || [];
+  const standaloneTestimonies = data.testimonies || [];
 
   const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
   const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
@@ -94,11 +95,45 @@ Pages.memberDetail = async function (content, memberId) {
   `;
   }).join('');
 
-  // Build meeting-linked testimony HTML
-  const meetingTestimonyHtml = meetingTestimonies.map((n) => buildMeetingNoteItem(n, memberId, canEdit)).join('');
+  // Merge standalone testimonies + meeting-linked testimonies, sorted by date desc
+  const allTestimonyItems = [
+    ...standaloneTestimonies.map((p) => ({ _type: 'standalone', _date: p.prayer_date || '', ...p })),
+    ...meetingTestimonies.map((n) => ({ _type: 'meeting', _date: (n.meeting_date || '').slice(0, 10), ...n })),
+  ].sort((a, b) => (b._date > a._date ? 1 : b._date < a._date ? -1 : 0));
+
+  // Build unified testimony HTML
+  const allTestimonyHtml = allTestimonyItems.map((item) => {
+    if (item._type === 'meeting') {
+      return buildMeetingNoteItem(item, memberId, canEdit);
+    }
+    const p = item;
+    const pId = `ts-${p.prayer_id}`;
+    const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
+    const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
+    const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
+    return `
+    <div class="p-3 rounded-lg border border-slate-100" id="testimony-item-${p.prayer_id}">
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="toggleTestimonyContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
+            <i class="fas fa-chevron-down" id="testimony-chevron-${pId}"></i>
+          </button>
+          ${canEdit ? `<button onclick='editTestimony(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick='deleteTestimony(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
+        </div>
+      </div>
+      <div id="testimony-content-${pId}" class="hidden">
+        <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
+      </div>
+    </div>
+  `;
+  }).join('');
 
   const hasPrayers = allPrayerItems.length > 0;
-  const hasTestimonies = meetingTestimonies.length > 0;
+  const hasTestimonies = allTestimonyItems.length > 0;
 
   content.innerHTML = `
     <div class="mb-4"><a href="javascript:history.back()" class="text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-arrow-left mr-1"></i>${t('common.back')}</a></div>
@@ -165,9 +200,11 @@ Pages.memberDetail = async function (content, memberId) {
         <div class="card p-5">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-slate-700"><i class="fas fa-star text-amber-500 mr-2"></i>${t('member.testimonies')}</h3>
+            ${canEdit ? `<button onclick="addTestimony(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_testimony')}</button>` : ''}
           </div>
           <div class="space-y-3">
-            ${meetingTestimonyHtml || `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>`}
+            ${allTestimonyHtml}
+            ${!hasTestimonies ? `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>` : ''}
           </div>
         </div>
 
@@ -490,6 +527,122 @@ function togglePrayerContent(pId) {
       chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
     }
   }
+}
+
+function toggleTestimonyContent(pId) {
+  const contentEl = document.getElementById(`testimony-content-${pId}`);
+  const chevron = document.getElementById(`testimony-chevron-${pId}`);
+  if (contentEl) {
+    const isHidden = contentEl.classList.contains('hidden');
+    contentEl.classList.toggle('hidden', !isHidden);
+    if (chevron) {
+      chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    }
+  }
+}
+
+async function addTestimony(memberId) {
+  openTestimonyForm(memberId, null);
+}
+
+async function editTestimony(memberId, testimony) {
+  openTestimonyForm(memberId, testimony);
+}
+
+async function deleteTestimony(memberId, testimonyId) {
+  if (!confirm(t('member.testimony_delete_confirm'))) return;
+  try {
+    await api.delete(`/members/${memberId}/testimonies/${testimonyId}`);
+    toast(t('member.testimony_deleted'), 'success');
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
+}
+
+function openTestimonyForm(memberId, testimony) {
+  const p = testimony || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const box = h(`<div class="p-6 max-h-[80vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-4">${testimony ? t('member.edit_testimony_title') : t('member.add_testimony_title')}</h3>
+    <form id="testimony-form" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.testimony_date')} *</label>
+        <input type="date" name="prayer_date" required value="${esc(p.prayer_date || today)}" class="w-full px-3 py-2.5 border rounded-lg" />
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.testimony_content')} *</label>
+        <div id="testimony-editor-toolbar" class="flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600">
+          <button type="button" class="testimony-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold" data-cmd="bold" title="Bold"><b>B</b></button>
+          <button type="button" class="testimony-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic" data-cmd="italic" title="Italic"><i>I</i></button>
+          <button type="button" class="testimony-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline" data-cmd="underline" title="Underline"><u>U</u></button>
+          <span class="border-l border-slate-300 mx-1"></span>
+          <button type="button" class="testimony-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertUnorderedList" title="List">&#8226; List</button>
+          <button type="button" class="testimony-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertOrderedList" title="Numbered">1. List</button>
+        </div>
+        <div id="testimony-editor"
+          contenteditable="true"
+          class="min-h-[140px] max-h-[340px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700 whitespace-pre-wrap"
+          placeholder="${esc(t('member.testimony_content_ph'))}"></div>
+        <input type="hidden" name="content" />
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-amber-500 text-white rounded-lg font-semibold">${t('common.save')}</button>
+      </div>
+    </form>
+  </div>`);
+  openModal(box, { size: 'max-w-xl' });
+
+  const editor = box.querySelector('#testimony-editor');
+  const contentInput = box.querySelector('input[name="content"]');
+
+  if (p.content) {
+    if (/<[a-z][\s\S]*>/i.test(p.content)) {
+      editor.innerHTML = p.content;
+    } else {
+      editor.innerHTML = p.content.split('\n').map((l) => `<p>${esc(l) || '<br>'}</p>`).join('');
+    }
+  }
+
+  const updatePlaceholder = () => {
+    editor.classList.toggle('empty', editor.textContent.trim() === '');
+  };
+  updatePlaceholder();
+  editor.addEventListener('input', updatePlaceholder);
+
+  box.querySelectorAll('.testimony-tool').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.dataset.cmd, false, null);
+      editor.focus();
+    });
+  });
+
+  box.querySelector('#testimony-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const htmlContent = editor.innerHTML.trim();
+    if (!htmlContent || htmlContent === '<br>') {
+      toast(t('member.testimony_content_ph'), 'error');
+      return;
+    }
+    contentInput.value = htmlContent;
+    const fd = new FormData(e.target);
+    const payload = { prayer_date: fd.get('prayer_date'), content: fd.get('content') };
+    try {
+      if (testimony) {
+        await api.put(`/members/${memberId}/testimonies/${p.prayer_id}`, payload);
+        toast(t('member.testimony_updated'), 'success');
+      } else {
+        await api.post(`/members/${memberId}/testimonies`, payload);
+        toast(t('member.testimony_added'), 'success');
+      }
+      closeModal();
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
 }
 
 async function deleteMeetingLinkedNote(memberId, noteId) {

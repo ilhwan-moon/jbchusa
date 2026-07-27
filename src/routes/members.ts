@@ -314,7 +314,10 @@ members.get('/:id', async (c) => {
      WHERE mr.member_id = ?`
   ).bind(id).all()
   const prayers = await c.env.DB.prepare(
-    `SELECT * FROM member_prayer_requests WHERE member_id = ? ORDER BY prayer_date DESC, prayer_id DESC`
+    `SELECT * FROM member_prayer_requests WHERE member_id = ? AND note_type = 'prayer' ORDER BY prayer_date DESC, prayer_id DESC`
+  ).bind(id).all()
+  const testimonies = await c.env.DB.prepare(
+    `SELECT * FROM member_prayer_requests WHERE member_id = ? AND note_type = 'testimony' ORDER BY prayer_date DESC, prayer_id DESC`
   ).bind(id).all()
 
   // resolved address (own vs household)
@@ -335,6 +338,7 @@ members.get('/:id', async (c) => {
     assignments: assignments.results,
     relationships: relationships.results,
     prayers: prayers.results,
+    testimonies: testimonies.results,
   })
 })
 
@@ -460,7 +464,7 @@ members.post('/:id/prayers', async (c) => {
   if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
   const recorder = (c.get('user') as SessionUser | null)?.user_id || null
   const res = await c.env.DB.prepare(
-    `INSERT INTO member_prayer_requests (member_id, prayer_date, content, created_by) VALUES (?, ?, ?, ?)`
+    `INSERT INTO member_prayer_requests (member_id, note_type, prayer_date, content, created_by) VALUES (?, 'prayer', ?, ?, ?)`
   ).bind(id, b.prayer_date, b.content, recorder).run()
   return c.json({ prayer_id: res.meta.last_row_id })
 })
@@ -471,7 +475,7 @@ members.put('/:id/prayers/:prayerId', async (c) => {
   const b = await c.req.json<any>()
   if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
   await c.env.DB.prepare(
-    `UPDATE member_prayer_requests SET prayer_date=?, content=?, updated_at=datetime('now') WHERE prayer_id=? AND member_id=?`
+    `UPDATE member_prayer_requests SET prayer_date=?, content=?, updated_at=datetime('now') WHERE prayer_id=? AND member_id=? AND note_type='prayer'`
   ).bind(b.prayer_date, b.content, prayerId, id).run()
   return c.json({ ok: true })
 })
@@ -479,7 +483,37 @@ members.put('/:id/prayers/:prayerId', async (c) => {
 members.delete('/:id/prayers/:prayerId', async (c) => {
   const id = c.req.param('id')
   const prayerId = c.req.param('prayerId')
-  await c.env.DB.prepare(`DELETE FROM member_prayer_requests WHERE prayer_id=? AND member_id=?`).bind(prayerId, id).run()
+  await c.env.DB.prepare(`DELETE FROM member_prayer_requests WHERE prayer_id=? AND member_id=? AND note_type='prayer'`).bind(prayerId, id).run()
+  return c.json({ ok: true })
+})
+
+// ---- Testimonies ----
+members.post('/:id/testimonies', async (c) => {
+  const id = c.req.param('id')
+  const b = await c.req.json<any>()
+  if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
+  const recorder = (c.get('user') as SessionUser | null)?.user_id || null
+  const res = await c.env.DB.prepare(
+    `INSERT INTO member_prayer_requests (member_id, note_type, prayer_date, content, created_by) VALUES (?, 'testimony', ?, ?, ?)`
+  ).bind(id, b.prayer_date, b.content, recorder).run()
+  return c.json({ prayer_id: res.meta.last_row_id })
+})
+
+members.put('/:id/testimonies/:testimonyId', async (c) => {
+  const id = c.req.param('id')
+  const testimonyId = c.req.param('testimonyId')
+  const b = await c.req.json<any>()
+  if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
+  await c.env.DB.prepare(
+    `UPDATE member_prayer_requests SET prayer_date=?, content=?, updated_at=datetime('now') WHERE prayer_id=? AND member_id=? AND note_type='testimony'`
+  ).bind(b.prayer_date, b.content, testimonyId, id).run()
+  return c.json({ ok: true })
+})
+
+members.delete('/:id/testimonies/:testimonyId', async (c) => {
+  const id = c.req.param('id')
+  const testimonyId = c.req.param('testimonyId')
+  await c.env.DB.prepare(`DELETE FROM member_prayer_requests WHERE prayer_id=? AND member_id=? AND note_type='testimony'`).bind(testimonyId, id).run()
   return c.json({ ok: true })
 })
 
