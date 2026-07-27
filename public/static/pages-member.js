@@ -80,6 +80,7 @@ Pages.memberDetail = async function (content, memberId) {
           <input type="file" id="photo-input" accept="image/*" class="hidden" onchange="uploadPhoto(${m.member_id}, this)" />`:''}
         </div>
         <h2 class="text-xl font-bold text-slate-800 mt-3">${esc(name)}</h2>
+        ${(() => { const en = `${m.first_name||''} ${m.last_name||''}`.trim(); const ko = ((m.korean_last_name||'')+(m.korean_first_name||'')).trim()||(m.korean_name||'').trim(); return (en && ko) ? `<div class="text-sm text-slate-400">${esc(en)}</div>` : ''; })()}
         <div class="flex items-center justify-center gap-2 mt-2">
           ${m.title?`<span class="badge bg-brand-50 text-brand-700">${esc(m.title)}</span>`:''}
           ${statusBadge(m.status)}
@@ -332,8 +333,12 @@ async function editMember(memberId) {
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">Last Name *</label><input name="last_name" required value="${esc(m.last_name||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_name')}</label><input name="korean_name" value="${esc(m.korean_name||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_last_name')}</label><input name="korean_last_name" value="${esc(m.korean_last_name||'')}" placeholder="${t('member.korean_last_name_ph')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_first_name')}</label><input name="korean_first_name" value="${esc(m.korean_first_name||'')}" placeholder="${t('member.korean_first_name_ph')}" class="w-full px-3 py-2 border rounded-lg" /></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.title')}</label><select name="title" class="w-full px-3 py-2 border rounded-lg">${titleOpts}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.preferred_name')}</label><input name="preferred_name" value="${esc(m.preferred_name||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
       </div>
       <div class="grid grid-cols-3 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.gender')}</label><select name="gender" class="w-full px-3 py-2 border rounded-lg"><option value="">-</option><option value="M" ${m.gender==='M'?'selected':''}>${t('gender.M')}</option><option value="F" ${m.gender==='F'?'selected':''}>${t('gender.F')}</option></select></div>

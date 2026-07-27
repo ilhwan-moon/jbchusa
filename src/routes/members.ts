@@ -12,7 +12,7 @@ const getMemberName = (m: any) => {
 
 const fetchMemberBasic = async (c: any, id: number | string) => {
   return await c.env.DB.prepare(
-    `SELECT member_id, first_name, last_name, korean_name, household_id, household_role,
+    `SELECT member_id, first_name, last_name, korean_name, korean_last_name, korean_first_name, household_id, household_role,
       use_own_address, address_line1, address_line2, city, state, zip_code
      FROM members WHERE member_id = ?`
   ).bind(id).first<any>();
@@ -141,7 +141,7 @@ members.get('/', async (c) => {
   const status = c.req.query('status') || ''
   const churchId = 1
   let sql = `
-    SELECT m.member_id, m.first_name, m.last_name, m.korean_name, m.preferred_name,
+    SELECT m.member_id, m.first_name, m.last_name, m.korean_name, m.korean_last_name, m.korean_first_name, m.preferred_name,
       m.gender, m.title, m.photo_url, m.status, m.member_type,
       m.city, m.state,
       h.household_name, h.city AS h_city, h.state AS h_state,
@@ -152,11 +152,11 @@ members.get('/', async (c) => {
     WHERE m.church_id = ?`
   const binds: any[] = [churchId]
   if (q) {
-    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.preferred_name LIKE ?
+    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.korean_last_name LIKE ? OR m.korean_first_name LIKE ? OR m.preferred_name LIKE ?
       OR EXISTS (SELECT 1 FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.value LIKE ?)
       OR h.home_phone LIKE ?)`
     const like = `%${q}%`
-    binds.push(like, like, like, like, like, like)
+    binds.push(like, like, like, like, like, like, like, like)
   }
   if (status) {
     sql += ` AND m.status = ?`
@@ -173,7 +173,7 @@ members.get('/export', async (c) => {
   const status = c.req.query('status') || ''
   const churchId = 1
   let sql = `
-    SELECT m.member_id, m.first_name, m.last_name, m.korean_name, m.preferred_name,
+    SELECT m.member_id, m.first_name, m.last_name, m.korean_name, m.korean_last_name, m.korean_first_name, m.preferred_name,
       m.gender, m.title, m.status, m.member_type, m.employment_type, m.birth_date,
       CASE WHEN m.use_own_address = 1 THEN COALESCE(m.address_line1, h.address_line1) ELSE h.address_line1 END AS address_line1,
       CASE WHEN m.use_own_address = 1 THEN COALESCE(m.address_line2, h.address_line2) ELSE h.address_line2 END AS address_line2,
@@ -192,11 +192,11 @@ members.get('/export', async (c) => {
     WHERE m.church_id = ?`
   const binds: any[] = [churchId]
   if (q) {
-    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.preferred_name LIKE ?
+    sql += ` AND (m.first_name LIKE ? OR m.last_name LIKE ? OR m.korean_name LIKE ? OR m.korean_last_name LIKE ? OR m.korean_first_name LIKE ? OR m.preferred_name LIKE ?
       OR EXISTS (SELECT 1 FROM member_contacts mc WHERE mc.member_id = m.member_id AND mc.value LIKE ?)
       OR h.home_phone LIKE ?)`
     const like = `%${q}%`
-    binds.push(like, like, like, like, like, like)
+    binds.push(like, like, like, like, like, like, like, like)
   }
   if (status) {
     sql += ` AND m.status = ?`
@@ -308,7 +308,7 @@ members.get('/:id', async (c) => {
   ).bind(id).all()
   const relationships = await c.env.DB.prepare(
     `SELECT mr.relationship_id, mr.relation_type, mr.note,
-       rm.member_id AS related_id, rm.first_name, rm.last_name, rm.korean_name, rm.photo_url, rm.title
+       rm.member_id AS related_id, rm.first_name, rm.last_name, rm.korean_name, rm.korean_last_name, rm.korean_first_name, rm.photo_url, rm.title
      FROM member_relationships mr
      JOIN members rm ON mr.related_id = rm.member_id
      WHERE mr.member_id = ?`
@@ -347,12 +347,12 @@ members.post('/', async (c) => {
   const b = await c.req.json<any>()
   if (!b.first_name || !b.last_name) return c.json({ error: '이름(First/Last)은 필수입니다.' }, 400)
   const res = await c.env.DB.prepare(
-    `INSERT INTO members (church_id, household_id, household_role, first_name, last_name, korean_name, preferred_name,
+    `INSERT INTO members (church_id, household_id, household_role, first_name, last_name, korean_name, korean_last_name, korean_first_name, preferred_name,
        gender, title, birth_date, member_type, employment_type, status, photo_url, note,
        use_own_address, address_line1, address_line2, city, state, zip_code)
-     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    b.household_id || null, b.household_role || null, b.first_name, b.last_name, b.korean_name || null,
+    b.household_id || null, b.household_role || null, b.first_name, b.last_name, b.korean_name || null, b.korean_last_name || null, b.korean_first_name || null,
     b.preferred_name || null, b.gender || null, b.title || null, b.birth_date || null,
     b.member_type || null, b.employment_type || null, b.status || '활동', b.photo_url || null, b.note || null,
     b.use_own_address ? 1 : 0, b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null
@@ -372,13 +372,13 @@ members.put('/:id', async (c) => {
   const id = c.req.param('id')
   const b = await c.req.json<any>()
   await c.env.DB.prepare(
-    `UPDATE members SET first_name=?, last_name=?, korean_name=?, preferred_name=?, gender=?, title=?,
+    `UPDATE members SET first_name=?, last_name=?, korean_name=?, korean_last_name=?, korean_first_name=?, preferred_name=?, gender=?, title=?,
        birth_date=?, member_type=?, employment_type=?, status=?, note=?,
        household_id=?, household_role=?, use_own_address=?, address_line1=?, address_line2=?, city=?, state=?, zip_code=?,
        updated_at=datetime('now')
      WHERE member_id=?`
   ).bind(
-    b.first_name, b.last_name, b.korean_name || null, b.preferred_name || null, b.gender || null, b.title || null,
+    b.first_name, b.last_name, b.korean_name || null, b.korean_last_name || null, b.korean_first_name || null, b.preferred_name || null, b.gender || null, b.title || null,
     b.birth_date || null, b.member_type || null, b.employment_type || null, b.status || '활동', b.note || null,
     b.household_id || null, b.household_role || null, b.use_own_address ? 1 : 0,
     b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null,

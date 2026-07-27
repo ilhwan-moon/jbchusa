@@ -830,10 +830,10 @@ function openMeetingNoteForm(meetingId, note) {
 
 /* ---- Member popup from roster ---- */
 async function showMemberPopup(memberId) {
-  const box = h(`<div class="p-6 max-h-[90vh] overflow-y-auto" id="member-popup-inner">
+  const box = h(`<div class="p-5 max-h-[92vh] overflow-y-auto" id="member-popup-inner">
     <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-bold text-slate-800">${t('nav.member_detail')}</h3>
-      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+      <h3 class="text-base font-bold text-slate-800"><i class="fas fa-user-circle mr-2 text-brand-500"></i>${t('member.popup_title')}</h3>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100"><i class="fas fa-times"></i></button>
     </div>
     <div id="member-popup-content">${loadingHtml()}</div>
   </div>`);
@@ -843,49 +843,175 @@ async function showMemberPopup(memberId) {
     const m = data.member;
     const addr = data.address;
     const name = nativeName(m);
-    const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
-    const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
+    const enName = `${m.first_name || ''} ${m.last_name || ''}`.trim();
+    const koLast  = (m.korean_last_name  || '').trim();
+    const koFirst = (m.korean_first_name || '').trim();
+    const koName  = (koLast + koFirst).trim() || (m.korean_name || '').trim();
+    const showSub = koName && enName && koName !== enName;
+
+    // 나이 계산
+    let ageStr = '';
+    if (m.birth_date) {
+      const birth = new Date(m.birth_date);
+      const today = new Date();
+      let age = today.getFullYear() - birth.getFullYear();
+      if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--;
+      ageStr = `${age}${t('member.age_years')}`;
+    }
+
+    // 연락처
     const contactsHtml = data.contacts.map((ct) => {
       if (ct.contact_type === 'email') {
-        return `<a href="mailto:${esc(ct.value)}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-sm">
-          <i class="fas fa-envelope w-4 text-brand-600"></i><span class="text-slate-700">${esc(ct.value)}</span></a>`;
+        return `<a href="mailto:${esc(ct.value)}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-slate-100">
+          <i class="fas fa-envelope w-4 text-brand-600 text-xs"></i>
+          <div><div class="text-xs text-slate-400">${t('member.contact_email')}</div><div class="text-sm text-slate-700">${esc(ct.value)}</div></div>
+          ${ct.is_primary ? `<span class="ml-auto text-xs text-brand-500">${t('member.primary')}</span>` : ''}
+        </a>`;
       }
       const labelMap = { mobile: t('member.contact_mobile'), home: t('member.contact_home'), office: t('member.contact_office') };
-      return `<a href="tel:${esc(ct.value.replace(/[^0-9+]/g, ''))}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-emerald-50 text-sm">
-        <i class="fas fa-phone w-4 text-emerald-600"></i><span class="text-xs text-slate-400 mr-1">${labelMap[ct.contact_type] || ct.contact_type}</span><span class="text-slate-700">${esc(ct.value)}</span></a>`;
-    }).join('');
-    const assignHtml = data.assignments.map((a) => {
-      return `<div class="flex items-center gap-2 text-sm">
-        <i class="fas fa-sitemap text-slate-400 w-4"></i>
-        <span class="text-slate-700">${esc(a.group_name)}</span>
-        <span class="text-xs text-slate-400">${esc(a.position_name)}</span>
-        ${a.is_primary ? `<span class="badge bg-brand-50 text-brand-700 text-xs">${t('member.primary_affiliation')}</span>` : ''}
-      </div>`;
-    }).join('');
+      return `<a href="tel:${esc(ct.value.replace(/[^0-9+]/g, ''))}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-emerald-50">
+        <i class="fas fa-phone w-4 text-emerald-600 text-xs"></i>
+        <div><div class="text-xs text-slate-400">${labelMap[ct.contact_type] || ct.contact_type}</div><div class="text-sm text-slate-700">${esc(ct.value)}</div></div>
+        ${ct.is_primary ? `<span class="ml-auto text-xs text-emerald-600">${t('member.primary')}</span>` : ''}
+      </a>`;
+    }).join('') || `<p class="text-xs text-slate-400 py-1">${t('member.no_contacts')}</p>`;
+
+    // 주소
+    const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+    const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
+
+    // 소속/직분
+    const assignHtml = data.assignments.length
+      ? data.assignments.map((a) => `
+        <div class="flex items-start gap-2 p-2 rounded-lg bg-slate-50">
+          <i class="fas fa-sitemap text-slate-400 w-4 text-xs mt-0.5"></i>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm text-slate-700 font-medium">${esc(a.group_name)}</div>
+            <div class="text-xs text-slate-400">${esc(a.position_name)}${a.is_primary ? ' · <span class="text-brand-600">' + t('member.primary_affiliation') + '</span>' : ''}</div>
+          </div>
+        </div>`).join('')
+      : `<p class="text-xs text-slate-400 py-1">${t('member.no_assignments')}</p>`;
+
+    // 가족 구성원
+    const relLabelMap = {
+      spouse: t('member.relation_spouse'), parent: t('member.relation_parent'),
+      child: t('member.relation_child'), sibling: t('member.relation_sibling'), other: t('member.relation_other'),
+    };
+    const relsHtml = data.relationships.length
+      ? data.relationships.map((r) => {
+          const rn = nativeName(r);
+          return `<div class="flex items-center gap-2 p-2 rounded-lg bg-slate-50">
+            ${avatar(r.photo_url, r.first_name, r.last_name, 'w-8 h-8 text-sm')}
+            <div class="flex-1 min-w-0">
+              <div class="text-sm text-slate-700 font-medium">${esc(rn)}</div>
+              <div class="text-xs text-slate-400">${esc(relLabelMap[r.relation_type] || r.relation_type)}${r.title ? ' · ' + esc(r.title) : ''}</div>
+            </div>
+          </div>`;
+        }).join('')
+      : `<p class="text-xs text-slate-400 py-1">${t('member.no_relations')}</p>`;
+
+    // 언어
+    const profMap = { native: t('member.native'), fluent: t('member.fluent'), conversational: t('member.conversational'), basic: t('member.basic') };
+    const langsHtml = data.languages.length
+      ? data.languages.map((l) => `
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 text-xs border border-sky-100">
+          <i class="fas fa-language text-xs"></i>
+          ${esc(l.name_en || l.code)}${l.proficiency ? ' · ' + (profMap[l.proficiency] || l.proficiency) : ''}
+        </span>`).join('')
+      : `<p class="text-xs text-slate-400 py-1">${t('member.no_languages')}</p>`;
+
+    // 기본 정보 row
+    const infoRows = [
+      m.birth_date && `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-cake-candles text-slate-400 w-4 text-xs"></i>
+        <span class="text-slate-600">${esc(m.birth_date)}</span>
+        ${ageStr ? `<span class="text-xs text-slate-400">(${ageStr})</span>` : ''}
+        ${m.gender ? `<span class="text-xs text-slate-400">· ${t('gender.' + m.gender)}</span>` : ''}
+      </div>`,
+      m.member_type && `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-id-card text-slate-400 w-4 text-xs"></i>
+        <span class="text-slate-600">${esc(metaLabel('memberTypes', m.member_type) || m.member_type)}</span>
+      </div>`,
+      m.employment_type && `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-briefcase text-slate-400 w-4 text-xs"></i>
+        <span class="text-slate-600">${esc(metaLabel('employmentTypes', m.employment_type) || m.employment_type)}</span>
+      </div>`,
+      m.salvation_date && `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-cross text-slate-400 w-4 text-xs"></i>
+        <span class="text-xs text-slate-400">${t('member.salvation_date')}</span>
+        <span class="text-slate-600">${esc(m.salvation_date)}</span>
+      </div>`,
+      m.household_name && `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-house text-slate-400 w-4 text-xs"></i>
+        <span class="text-xs text-slate-400">${t('member.household_label')}</span>
+        <span class="text-slate-600">${esc(m.household_name)}</span>
+        ${m.household_role ? `<span class="text-xs text-slate-400">(${esc(m.household_role)})</span>` : ''}
+      </div>`,
+      m.note && `<div class="flex items-start gap-2 text-sm">
+        <i class="fas fa-note-sticky text-slate-400 w-4 text-xs mt-0.5"></i>
+        <span class="text-slate-600 text-xs">${esc(m.note)}</span>
+      </div>`,
+    ].filter(Boolean).join('');
+
     const popup = box.querySelector('#member-popup-content');
     popup.innerHTML = `
-      <div class="flex items-start gap-4 mb-5">
-        <div class="shrink-0">${avatar(m.photo_url, m.first_name, m.last_name, 'w-20 h-20 text-2xl')}</div>
+      <!-- 프로필 헤더 -->
+      <div class="flex items-start gap-4 pb-4 border-b border-slate-100">
+        <div class="shrink-0">${avatar(m.photo_url, m.first_name, m.last_name, 'w-16 h-16 text-xl')}</div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
             <h4 class="text-xl font-bold text-slate-800">${esc(name)}</h4>
             ${m.title ? `<span class="badge bg-brand-50 text-brand-700">${esc(m.title)}</span>` : ''}
             ${statusBadge(m.status)}
           </div>
-          ${m.birth_date ? `<div class="text-xs text-slate-400 mt-1"><i class="fas fa-cake-candles mr-1"></i>${esc(m.birth_date)}${m.gender ? ' · ' + t('gender.' + m.gender) : ''}</div>` : ''}
-          ${data.assignments.length ? `<div class="mt-2 space-y-1">${assignHtml}</div>` : ''}
+          ${showSub ? `<div class="text-sm text-slate-400 mt-0.5">${esc(enName)}</div>` : ''}
+          ${m.preferred_name ? `<div class="text-xs text-slate-400 mt-0.5"><i class="fas fa-quote-left text-xs mr-1"></i>${esc(m.preferred_name)}</div>` : ''}
+          ${infoRows ? `<div class="mt-2 space-y-1">${infoRows}</div>` : ''}
         </div>
       </div>
-      ${(data.contacts.length || fullAddr) ? `
-        <div class="border-t border-slate-100 pt-3 mb-3">
-          <div class="text-xs font-semibold text-slate-500 mb-2">${t('member.contacts_address')}</div>
-          <div class="space-y-1">${contactsHtml}</div>
-          ${fullAddr ? `<a href="${mapsUrl}" target="_blank" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-blue-50 text-sm mt-1">
-            <i class="fas fa-location-dot w-4 text-blue-600"></i><span class="text-slate-700 text-xs">${esc(fullAddr)}</span></a>` : ''}
-        </div>` : ''}
-      <div class="flex gap-2 pt-2">
-        <a href="#/members/${memberId}" onclick="closeModal()" class="flex-1 py-2 text-center text-sm text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50">
-          <i class="fas fa-external-link-alt mr-1"></i>${t('member.edit_info')}
+
+      <!-- 연락처 & 주소 -->
+      <div class="mt-4">
+        <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+          <i class="fas fa-address-book text-brand-400"></i>${t('member.contacts_address')}
+        </div>
+        <div class="space-y-1">${contactsHtml}</div>
+        ${fullAddr ? `<a href="${mapsUrl}" target="_blank" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-blue-50 mt-1">
+          <i class="fas fa-location-dot w-4 text-blue-600 text-xs"></i>
+          <div><div class="text-xs text-slate-400">${t('member.address')}</div><div class="text-sm text-slate-700">${esc(fullAddr)}</div></div>
+          <i class="fas fa-external-link-alt text-slate-300 text-xs ml-auto"></i>
+        </a>` : ''}
+      </div>
+
+      <!-- 소속 / 직분 -->
+      <div class="mt-4">
+        <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+          <i class="fas fa-sitemap text-brand-400"></i>${t('member.affiliation_section')}
+        </div>
+        <div class="space-y-1">${assignHtml}</div>
+      </div>
+
+      <!-- 가족 구성원 -->
+      <div class="mt-4">
+        <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+          <i class="fas fa-people-group text-brand-400"></i>${t('member.family_section')}
+        </div>
+        <div class="space-y-1">${relsHtml}</div>
+      </div>
+
+      <!-- 언어 -->
+      ${data.languages.length ? `
+      <div class="mt-4">
+        <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+          <i class="fas fa-language text-brand-400"></i>${t('member.language_section')}
+        </div>
+        <div class="flex flex-wrap gap-1">${langsHtml}</div>
+      </div>` : ''}
+
+      <!-- 성도 상세 페이지 이동 버튼 -->
+      <div class="flex gap-2 mt-5 pt-4 border-t border-slate-100">
+        <a href="#/members/${memberId}" onclick="closeModal()" class="flex-1 py-2.5 text-center text-sm text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 font-medium">
+          <i class="fas fa-external-link-alt mr-1.5"></i>${t('member.open_detail')}
         </a>
       </div>`;
   } catch (err) {

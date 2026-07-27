@@ -22,7 +22,24 @@ function nativeName(m) {
   if (!m) return '';
   const preferred = (m.preferred_name || '').trim();
   if (preferred) return preferred;
+  // 한국어 성+이름이 모두 있으면 "성이름" 형식으로 표시
+  const koLast  = (m.korean_last_name  || '').trim();
+  const koFirst = (m.korean_first_name || '').trim();
+  if (koLast || koFirst) return (koLast + koFirst).trim();
+  // 구형 단일 필드 fallback
+  const koName = (m.korean_name || '').trim();
+  if (koName) return koName;
   return `${m.first_name || ''} ${m.last_name || ''}`.trim();
+}
+// 영문+한글 모두 반환 (상세 페이지 서브타이틀용)
+function fullName(m) {
+  if (!m) return '';
+  const en = `${m.first_name || ''} ${m.last_name || ''}`.trim();
+  const koLast  = (m.korean_last_name  || '').trim();
+  const koFirst = (m.korean_first_name || '').trim();
+  const ko = (koLast + koFirst).trim() || (m.korean_name || '').trim();
+  if (en && ko) return `${ko} (${en})`;
+  return ko || en;
 }
 function localizeMetaName(item) {
   if (!item) return '';
