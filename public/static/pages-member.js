@@ -421,9 +421,9 @@ function initPagedSection(rootId, items, renderFn, opts = {}) {
 
   let query = '';
   let page  = 1;
+  let composing = false; // IME 조합 중 플래그
 
   function getTextContent(item) {
-    // Strip HTML tags for search
     const raw = (item.content || '').replace(/<[^>]+>/g, ' ');
     const date = item._date || '';
     const title = item.meeting_title || '';
@@ -436,7 +436,60 @@ function initPagedSection(rootId, items, renderFn, opts = {}) {
     return items.filter((item) => getTextContent(item).includes(q));
   }
 
-  function render() {
+  // 검색창은 초기 1회만 생성 — 재렌더 시 건드리지 않음
+  function initSearchBar() {
+    root.innerHTML = `
+      <div class="mb-2" id="${rootId}-search-wrap">
+        <div class="relative">
+          <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+          <input id="${rootId}-search" type="text"
+            placeholder="${esc(t('common.search_ph'))}"
+            class="w-full pl-7 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+          <button id="${rootId}-clear" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs hidden"><i class="fas fa-times"></i></button>
+        </div>
+      </div>
+      <div id="${rootId}-list"></div>
+      <div id="${rootId}-pager"></div>`;
+
+    const searchEl = document.getElementById(`${rootId}-search`);
+    const clearEl  = document.getElementById(`${rootId}-clear`);
+
+    // IME 조합 감지 — 조합 중에는 renderList 호출 차단
+    searchEl.addEventListener('compositionstart', () => { composing = true; });
+    searchEl.addEventListener('compositionend',   (e) => {
+      composing = false;
+      query = e.target.value;
+      page = 1;
+      renderList();
+      syncClearBtn();
+    });
+    searchEl.addEventListener('input', (e) => {
+      if (composing) return; // 한글 조합 중이면 무시
+      query = e.target.value;
+      page = 1;
+      renderList();
+      syncClearBtn();
+    });
+    clearEl.addEventListener('click', () => {
+      searchEl.value = '';
+      query = '';
+      page = 1;
+      renderList();
+      syncClearBtn();
+      searchEl.focus();
+    });
+
+    function syncClearBtn() {
+      clearEl.classList.toggle('hidden', !query);
+    }
+  }
+
+  // 아이템 목록 + 페이저만 교체
+  function renderList() {
+    const listEl  = document.getElementById(`${rootId}-list`);
+    const pagerEl = document.getElementById(`${rootId}-pager`);
+    if (!listEl || !pagerEl) return;
+
     const list = filtered();
     const total = list.length;
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -444,68 +497,38 @@ function initPagedSection(rootId, items, renderFn, opts = {}) {
     const start = (page - 1) * PAGE_SIZE;
     const slice = list.slice(start, start + PAGE_SIZE);
 
-    const itemsHtml = slice.length
-      ? slice.map(renderFn).join('')
+    listEl.innerHTML = slice.length
+      ? `<div class="space-y-3">${slice.map(renderFn).join('')}</div>`
       : (query ? (opts.noResultHtml || '') : (opts.emptyHtml || ''));
 
-    const pageLabel = t('common.page_of')
-      .replace('{cur}', page).replace('{total}', totalPages);
+    const pageLabel  = t('common.page_of').replace('{cur}', page).replace('{total}', totalPages);
     const countLabel = t('common.items_count').replace('{n}', total);
 
-    const pagerHtml = total > PAGE_SIZE ? `
-      <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
-        <span class="text-xs text-slate-400">${countLabel}</span>
-        <div class="flex items-center gap-1">
-          <button id="${rootId}-prev" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page <= 1 ? 'disabled' : ''}>
-            <i class="fas fa-chevron-left"></i> ${t('common.prev')}
-          </button>
-          <span class="text-xs text-slate-500 px-2">${pageLabel}</span>
-          <button id="${rootId}-next" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page >= totalPages ? 'disabled' : ''}>
-            ${t('common.next')} <i class="fas fa-chevron-right"></i>
-          </button>
-        </div>
-      </div>` : (total > 0 ? `<div class="mt-2 text-right"><span class="text-xs text-slate-400">${countLabel}</span></div>` : '');
-
-    root.innerHTML = `
-      <div class="mb-2">
-        <div class="relative">
-          <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-          <input id="${rootId}-search" type="text" value="${esc(query)}"
-            placeholder="${esc(t('common.search_ph'))}"
-            class="w-full pl-7 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
-          ${query ? `<button id="${rootId}-clear" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"><i class="fas fa-times"></i></button>` : ''}
-        </div>
-      </div>
-      <div class="space-y-3">${itemsHtml}</div>
-      ${pagerHtml}`;
-
-    // Bind events
-    const searchEl = document.getElementById(`${rootId}-search`);
-    if (searchEl) {
-      searchEl.addEventListener('input', (e) => {
-        query = e.target.value;
-        page = 1;
-        render();
-        // Re-focus after re-render with cursor at end
-        const el2 = document.getElementById(`${rootId}-search`);
-        if (el2) { el2.focus(); const len = el2.value.length; el2.setSelectionRange(len, len); }
-      });
-    }
-    const clearEl = document.getElementById(`${rootId}-clear`);
-    if (clearEl) {
-      clearEl.addEventListener('click', () => { query = ''; page = 1; render(); });
-    }
-    const prevEl = document.getElementById(`${rootId}-prev`);
-    if (prevEl) {
-      prevEl.addEventListener('click', () => { if (page > 1) { page--; render(); } });
-    }
-    const nextEl = document.getElementById(`${rootId}-next`);
-    if (nextEl) {
-      nextEl.addEventListener('click', () => { if (page < totalPages) { page++; render(); } });
+    if (total > PAGE_SIZE) {
+      pagerEl.innerHTML = `
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+          <span class="text-xs text-slate-400">${countLabel}</span>
+          <div class="flex items-center gap-1">
+            <button id="${rootId}-prev" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page <= 1 ? 'disabled' : ''}>
+              <i class="fas fa-chevron-left"></i> ${t('common.prev')}
+            </button>
+            <span class="text-xs text-slate-500 px-2">${pageLabel}</span>
+            <button id="${rootId}-next" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page >= totalPages ? 'disabled' : ''}>
+              ${t('common.next')} <i class="fas fa-chevron-right"></i>
+            </button>
+          </div>
+        </div>`;
+      document.getElementById(`${rootId}-prev`)?.addEventListener('click', () => { if (page > 1) { page--; renderList(); } });
+      document.getElementById(`${rootId}-next`)?.addEventListener('click', () => { if (page < totalPages) { page++; renderList(); } });
+    } else {
+      pagerEl.innerHTML = total > 0
+        ? `<div class="mt-2 text-right"><span class="text-xs text-slate-400">${countLabel}</span></div>`
+        : '';
     }
   }
 
-  render();
+  initSearchBar();
+  renderList();
 }
 
 /* ---- Prayer item renderer ---- */
