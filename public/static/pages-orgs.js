@@ -104,7 +104,7 @@ async function loadGroupMembers(groupId, cat) {
 }
 
 function memberCardHtml(m) {
-  const name = m.korean_name || `${m.first_name} ${m.last_name}`;
+  const name = nativeName(m);
   return `<a href="#/members/${m.member_id}" class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:border-brand-300 hover:bg-brand-50/40 transition">
     ${avatar(m.photo_url, m.first_name, m.last_name)}
     <div class="flex-1 min-w-0">

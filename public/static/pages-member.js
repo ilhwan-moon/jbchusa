@@ -6,8 +6,7 @@ Pages.memberDetail = async function (content, memberId) {
   const { data } = await api.get(`/members/${memberId}`);
   const m = data.member;
   const addr = data.address;
-  const name = m.korean_name || `${m.first_name} ${m.last_name}`;
-  const engName = `${m.first_name} ${m.last_name}`;
+  const name = nativeName(m);
   const canEdit = hasPerm('member.edit');
 
   const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
@@ -35,7 +34,7 @@ Pages.memberDetail = async function (content, memberId) {
   }).join('') || `<div class="text-sm text-slate-400">${t('member.no_affiliation')}</div>`;
 
   const famHtml = data.relationships.map((rel) => {
-    const rn = rel.korean_name || `${rel.first_name} ${rel.last_name}`;
+    const rn = nativeName(rel);
     const relLabel = t('rel.' + rel.relation_type) || rel.relation_type;
     return `<div class="flex items-center gap-3 p-2.5 rounded-lg border border-slate-100">
       <a href="#/members/${rel.related_id}" class="flex items-center gap-3 flex-1 min-w-0">
@@ -47,6 +46,25 @@ Pages.memberDetail = async function (content, memberId) {
   }).join('') || `<div class="text-sm text-slate-400">${t('member.no_family')}</div>`;
 
   const langHtml = data.languages.map((l) => `<span class="badge bg-slate-100 text-slate-600">${esc(l.name_native||l.name_en)}${l.is_primary?' ★':''}</span>`).join(' ');
+  const prayers = data.prayers || [];
+  const prayerHtml = prayers.map((p) => {
+    // Safely serialize prayer object for onclick
+    const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
+    // Render content: if HTML tags detected, render as HTML; else as plain text
+    const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
+    const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
+    return `
+    <div class="p-3 rounded-lg border border-slate-100">
+      <div class="flex items-center justify-between mb-1">
+        <div class="text-xs font-medium text-slate-500">${esc(p.prayer_date || '')}</div>
+        ${canEdit?`<div class="flex items-center gap-2">
+          <button onclick='editPrayerRequest(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick='deletePrayerRequest(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>
+        </div>`:''}
+      </div>
+      <div class="text-sm text-slate-700 prose prose-sm max-w-none">${contentHtml}</div>
+    </div>
+  `}).join('') || `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>`;
 
   content.innerHTML = `
     <div class="mb-4"><a href="javascript:history.back()" class="text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-arrow-left mr-1"></i>${t('common.back')}</a></div>
@@ -59,11 +77,10 @@ Pages.memberDetail = async function (content, memberId) {
           <input type="file" id="photo-input" accept="image/*" class="hidden" onchange="uploadPhoto(${m.member_id}, this)" />`:''}
         </div>
         <h2 class="text-xl font-bold text-slate-800 mt-3">${esc(name)}</h2>
-        <p class="text-sm text-slate-500">${esc(engName)}${m.preferred_name && m.preferred_name!==m.first_name?` (${esc(m.preferred_name)})`:''}</p>
         <div class="flex items-center justify-center gap-2 mt-2">
           ${m.title?`<span class="badge bg-brand-50 text-brand-700">${esc(m.title)}</span>`:''}
           ${statusBadge(m.status)}
-          <span class="badge bg-slate-100 text-slate-600">${esc(m.member_type)}</span>
+          ${m.member_type?`<span class="badge bg-slate-100 text-slate-600">${esc(metaLabel('memberTypes', m.member_type) || m.member_type)}</span>`:''}
         </div>
         ${langHtml?`<div class="mt-3">${langHtml}</div>`:''}
         ${canEdit?`<button onclick="editMember(${m.member_id})" class="mt-4 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"><i class="fas fa-pen mr-1"></i>${t('member.edit_info')}</button>
@@ -98,6 +115,14 @@ Pages.memberDetail = async function (content, memberId) {
           </div>
           <div class="space-y-2">${famHtml}</div>
           ${m.household_id?`<a href="#/households/${m.household_id}" class="mt-3 inline-block text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-house-user mr-1"></i>${t('member.view_household')}</a>`:''}
+        </div>
+
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-slate-700"><i class="fas fa-hands-praying text-brand-500 mr-2"></i>${t('member.prayer_requests')}</h3>
+            ${canEdit?`<button onclick="addPrayerRequest(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_prayer')}</button>`:''}
+          </div>
+          <div class="space-y-3">${prayerHtml}</div>
         </div>
 
         ${m.note?`<div class="card p-5"><h3 class="font-bold text-slate-700 mb-2"><i class="fas fa-note-sticky text-brand-500 mr-2"></i>${t('member.note')}</h3><p class="text-sm text-slate-600 whitespace-pre-line">${esc(m.note)}</p></div>`:''}
@@ -143,7 +168,7 @@ function resizeImage(file, maxW, maxH, quality) {
 async function addRelationship(memberId) {
   const { data } = await api.get('/members', { params: {} });
   const others = data.members.filter((x) => x.member_id !== memberId);
-  const opts = others.map((x) => `<option value="${x.member_id}">${esc(x.korean_name || x.first_name+' '+x.last_name)}</option>`).join('');
+  const opts = others.map((x) => `<option value="${x.member_id}">${esc(nativeName(x))}</option>`).join('');
   const relOpts = [['spouse'],['parent'],['child'],['sibling'],['grandparent'],['grandchild'],['guardian'],['other']]
     .map(([v]) => `<option value="${v}">${t('rel.' + v)}</option>`).join('');
   const box = h(`<div class="p-6">
@@ -239,13 +264,45 @@ async function editMember(memberId) {
     zip: addr.zip || '',
   };
   const addressValue = (field) => (useOwnAddress ? personalAddress[field] : householdAddress[field]);
-  const { data: pd } = await api.get('/admin/positions');
+  const [{ data: pd }, { data: mt }, { data: et }, { data: sd }] = await Promise.all([
+    api.get('/admin/positions'),
+    api.get('/admin/member-types'),
+    api.get('/admin/employment-types'),
+    api.get('/admin/member-statuses'),
+  ]);
   const titleOptions = Array.from(new Set((pd.positions || []).map((p) => p.name).filter(Boolean)));
   if (m.title && !titleOptions.includes(m.title)) titleOptions.unshift(m.title);
   const titleOpts = ['<option value="">-</option>']
     .concat(titleOptions.map((o) => `<option value="${esc(o)}" ${m.title===o?'selected':''}>${esc(o)}</option>`))
     .join('');
-  const sel = (val, opts) => opts.map((o) => `<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('');
+  const memberTypeOptions = (mt.types || []).filter((t) => t.is_active !== 0)
+    .map((t) => ({ value: t.name, label: localizeMetaName(t) }));
+  const employmentTypeOptions = (et.types || []).filter((t) => t.is_active !== 0)
+    .map((t) => ({ value: t.name, label: localizeMetaName(t) }));
+  const statusOptions = (sd.statuses || []).filter((s) => s.is_active !== 0)
+    .map((s) => ({ value: s.name, label: localizeMetaName(s) }));
+  const fallbackMemberTypes = ['성도','새신자','목회자','직원','학생']
+    .map((value) => ({ value, label: t('mt.' + value) || value }));
+  const fallbackEmploymentTypes = ['봉사자','상근직원','목회자']
+    .map((value) => ({ value, label: t('emp.' + value) || value }));
+  const fallbackStatuses = ['활동','휴면','이전','사망']
+    .map((value) => ({ value, label: t('status.' + value) || value }));
+  const memberTypeList = memberTypeOptions.length ? memberTypeOptions : fallbackMemberTypes;
+  const employmentTypeList = employmentTypeOptions.length ? employmentTypeOptions : fallbackEmploymentTypes;
+  const statusList = statusOptions.length ? statusOptions : fallbackStatuses;
+  const ensureOption = (list, value) => {
+    if (!value) return;
+    const exists = list.some((item) => (item.value || item) === value);
+    if (!exists) list.unshift({ value, label: value });
+  };
+  ensureOption(memberTypeList, m.member_type);
+  ensureOption(employmentTypeList, m.employment_type);
+  ensureOption(statusList, m.status);
+  const sel = (val, opts) => opts.map((o) => {
+    const value = o.value || o;
+    const label = o.label || o;
+    return `<option value="${esc(value)}" ${val===value?'selected':''}>${esc(label)}</option>`;
+  }).join('');
   const box = h(`<div class="p-6 max-h-[80vh] overflow-y-auto">
     <h3 class="text-lg font-bold mb-4">${memberId?t('member.edit_title'):t('member.new_title')}</h3>
     <form id="m-form" class="space-y-3">
@@ -260,11 +317,11 @@ async function editMember(memberId) {
       <div class="grid grid-cols-3 gap-3">
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.gender')}</label><select name="gender" class="w-full px-3 py-2 border rounded-lg"><option value="">-</option><option value="M" ${m.gender==='M'?'selected':''}>${t('gender.M')}</option><option value="F" ${m.gender==='F'?'selected':''}>${t('gender.F')}</option></select></div>
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.birth_date')}</label><input type="date" name="birth_date" value="${esc(m.birth_date||'')}" class="w-full px-3 py-2 border rounded-lg" /></div>
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.status')}</label><select name="status" class="w-full px-3 py-2 border rounded-lg">${['활동','휴면','이전','사망'].map((o)=>`<option value="${o}" ${(m.status||'활동')===o?'selected':''}>${t('status.'+o)}</option>`).join('')}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.status')}</label><select name="status" class="w-full px-3 py-2 border rounded-lg">${sel(m.status || statusList[0], statusList)}</select></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.member_type')}</label><select name="member_type" class="w-full px-3 py-2 border rounded-lg">${['성도','새신자','목회자','직원','학생'].map((o)=>`<option value="${o}" ${(m.member_type||'성도')===o?'selected':''}>${t('mt.'+o)}</option>`).join('')}</select></div>
-        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.employment_type')}</label><select name="employment_type" class="w-full px-3 py-2 border rounded-lg">${['봉사자','상근직원','목회자'].map((o)=>`<option value="${o}" ${(m.employment_type||'봉사자')===o?'selected':''}>${t('emp.'+o)}</option>`).join('')}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.member_type')}</label><select name="member_type" class="w-full px-3 py-2 border rounded-lg"><option value="">-</option>${sel(m.member_type || '', memberTypeList)}</select></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.employment_type')}</label><select name="employment_type" class="w-full px-3 py-2 border rounded-lg"><option value="">-</option>${sel(m.employment_type || '', employmentTypeList)}</select></div>
       </div>
       <div class="pt-2 border-t border-slate-100">
         <div class="grid grid-cols-2 gap-3">
@@ -332,6 +389,118 @@ async function editMember(memberId) {
       location.hash = `#/members/${memberId}`; router();
     } catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
+}
+
+/* ---- prayer requests ---- */
+async function addPrayerRequest(memberId) {
+  openPrayerRequestForm(memberId, null);
+}
+
+async function editPrayerRequest(memberId, prayer) {
+  openPrayerRequestForm(memberId, prayer);
+}
+
+function openPrayerRequestForm(memberId, prayer) {
+  const p = prayer || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const box = h(`<div class="p-6 max-h-[80vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-4">${prayer ? t('member.edit_prayer_title') : t('member.add_prayer_title')}</h3>
+    <form id="prayer-form" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.prayer_date')} *</label>
+        <input type="date" name="prayer_date" required value="${esc(p.prayer_date || today)}" class="w-full px-3 py-2.5 border rounded-lg" />
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.prayer_content')} *</label>
+        <div id="prayer-editor-toolbar" class="flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600">
+          <button type="button" class="prayer-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold" data-cmd="bold" title="Bold"><b>B</b></button>
+          <button type="button" class="prayer-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic" data-cmd="italic" title="Italic"><i>I</i></button>
+          <button type="button" class="prayer-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline" data-cmd="underline" title="Underline"><u>U</u></button>
+          <span class="border-l border-slate-300 mx-1"></span>
+          <button type="button" class="prayer-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertUnorderedList" title="List">&#8226; List</button>
+          <button type="button" class="prayer-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertOrderedList" title="Numbered">1. List</button>
+        </div>
+        <div id="prayer-editor"
+          contenteditable="true"
+          class="min-h-[120px] max-h-[300px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700 whitespace-pre-wrap"
+          placeholder="${esc(t('member.prayer_content_ph'))}"></div>
+        <input type="hidden" name="content" />
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button>
+      </div>
+    </form>
+  </div>`);
+  openModal(box, { size: 'max-w-xl' });
+
+  const editor = box.querySelector('#prayer-editor');
+  const contentInput = box.querySelector('input[name="content"]');
+
+  // Set initial content (supports both HTML and plain text from DB)
+  if (p.content) {
+    // If content looks like HTML, use it directly; otherwise treat as plain text
+    if (/<[a-z][\s\S]*>/i.test(p.content)) {
+      editor.innerHTML = p.content;
+    } else {
+      editor.innerHTML = p.content.split('\n').map((l) => `<p>${esc(l) || '<br>'}</p>`).join('');
+    }
+  }
+
+  // Add placeholder behavior
+  const updatePlaceholder = () => {
+    if (editor.textContent.trim() === '') {
+      editor.classList.add('empty');
+    } else {
+      editor.classList.remove('empty');
+    }
+  };
+  updatePlaceholder();
+  editor.addEventListener('input', updatePlaceholder);
+
+  // Toolbar buttons
+  box.querySelectorAll('.prayer-tool').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.dataset.cmd, false, null);
+      editor.focus();
+    });
+  });
+
+  box.querySelector('#prayer-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const htmlContent = editor.innerHTML.trim();
+    if (!htmlContent || htmlContent === '<br>') {
+      toast(t('member.prayer_content_ph'), 'error');
+      return;
+    }
+    contentInput.value = htmlContent;
+    const fd = new FormData(e.target);
+    const payload = { prayer_date: fd.get('prayer_date'), content: fd.get('content') };
+    try {
+      if (prayer) {
+        await api.put(`/members/${memberId}/prayers/${p.prayer_id}`, payload);
+      } else {
+        await api.post(`/members/${memberId}/prayers`, payload);
+      }
+      closeModal();
+      toast(t('common.saved'), 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
+async function deletePrayerRequest(memberId, prayerId) {
+  if (!confirm(t('member.prayer_delete_confirm'))) return;
+  try {
+    await api.delete(`/members/${memberId}/prayers/${prayerId}`);
+    toast(t('common.deleted'), 'success');
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
 }
 
 /* ---- delete a member ---- */

@@ -7,12 +7,28 @@ Pages.attendance = async function (content, sub) {
 };
 
 function statusLabel(s) { return (typeof t === 'function') ? t('st.' + s) : s; }
-const STATUS_COLOR = { present:'bg-emerald-500', absent:'bg-red-400', excused:'bg-amber-400', online:'bg-blue-400', late:'bg-orange-400' };
+function reasonLabel(reasonId) {
+  const list = window.__absenceReasons || [];
+  const found = list.find((r) => String(r.reason_id) === String(reasonId));
+  return found ? localizeMetaName(found) : '';
+}
+const STATUS_COLOR = { present:'bg-emerald-500', absent:'bg-red-400' };
+
+function buildRepeatInfo(m) {
+  if (!m || !m.series_id) return '';
+  const freqLabel = m.series_freq === 'monthly' ? t('att.repeat_monthly') : t('att.repeat_weekly');
+  const interval = parseInt(m.series_interval || 1, 10) || 1;
+  const unitLabel = m.series_freq === 'monthly' ? t('att.repeat_month_unit') : t('att.repeat_week_unit');
+  const untilText = m.series_until_date ? ` · ${t('att.repeat_until')}: ${m.series_until_date}` : '';
+  return `${t('att.repeat_label')}: ${freqLabel} (${interval}${unitLabel})${untilText}`;
+}
+
 
 async function attendanceDashboard(content) {
   content.innerHTML = loadingHtml();
   const now = new Date();
-  const defaultYear = now.getFullYear();
+  const baseYear = now.getFullYear();
+  const defaultYear = baseYear;
   const defaultMonth = String(now.getMonth() + 1).padStart(2, '0');
   const defaultTrend = 'weekly';
   const defaultFromYear = '';
@@ -23,7 +39,7 @@ async function attendanceDashboard(content) {
     api.get('/orgs/groups'),
   ]);
 
-  const totalPresent = d.statusDist.filter((s)=>['present','online','late'].includes(s.status)).reduce((a,s)=>a+s.n,0);
+  const totalPresent = d.statusDist.filter((s)=>['present'].includes(s.status)).reduce((a,s)=>a+s.n,0);
   const totalRecords = d.statusDist.reduce((a,s)=>a+s.n,0);
   const rate = totalRecords ? Math.round(totalPresent/totalRecords*100) : 0;
 
@@ -99,6 +115,7 @@ async function attendanceDashboard(content) {
         <div class="flex items-center gap-2">
           <select id="att-year" class="px-3 py-2 border border-slate-200 rounded-lg text-sm"></select>
           <select id="att-month" class="px-3 py-2 border border-slate-200 rounded-lg text-sm"></select>
+          <button id="att-show-all" class="px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-slate-50">${t('att.show_all')}</button>
         </div>
       </div>
       <div id="meeting-list" class="space-y-2"></div>
@@ -106,11 +123,12 @@ async function attendanceDashboard(content) {
 
   const yearSelect = el('att-year');
   const monthSelect = el('att-month');
+  const showAllBtn = el('att-show-all');
   const yearOptions = [
     { value: '', label: t('att.filter_all') },
     ...Array.from({ length: 5 }, (_, i) => ({
-      value: String(defaultYear - i),
-      label: String(defaultYear - i),
+      value: String(baseYear - i),
+      label: String(baseYear - i),
     })),
   ];
   yearSelect.innerHTML = yearOptions.map((o)=>`<option value="${o.value}" ${o.value===String(defaultYear)?'selected':''}>${esc(o.label)}</option>`).join('');
@@ -135,6 +153,13 @@ async function attendanceDashboard(content) {
   }
   yearSelect.addEventListener('change', loadMeetingList);
   monthSelect.addEventListener('change', loadMeetingList);
+  if (showAllBtn) {
+    showAllBtn.addEventListener('click', () => {
+      yearSelect.value = '';
+      monthSelect.value = '';
+      loadMeetingList();
+    });
+  }
   const list = el('meeting-list');
   list.innerHTML = (md.meetings||[]).map(meetingRow).join('') || `<div class="text-sm text-slate-400 py-6 text-center">${t('att.no_meetings')}</div>`;
 
@@ -161,8 +186,8 @@ async function attendanceDashboard(content) {
   if (dashToMonth) { dashToMonth.innerHTML = dashboardMonthOptions; }
 
   const updateYearOptions = (range) => {
-    const minYear = range?.min_year ? parseInt(range.min_year, 10) : defaultYear;
-    const maxYear = range?.max_year ? parseInt(range.max_year, 10) : defaultYear;
+    const minYear = range?.min_year ? parseInt(range.min_year, 10) : baseYear;
+    const maxYear = range?.max_year ? parseInt(range.max_year, 10) : baseYear;
     const years = [];
     for (let y = maxYear; y >= minYear; y -= 1) years.push(String(y));
     const yearOptions = years.map((y)=>`<option value="${y}">${y}</option>`).join('');
@@ -249,13 +274,13 @@ async function attendanceDashboard(content) {
       }
       statusChart = new Chart(el('status-chart'), {
         type: 'doughnut',
-        data: { labels, datasets:[{ data: values, backgroundColor:['#10b981','#f87171','#fbbf24','#60a5fa','#fb923c'] }] },
+        data: { labels, datasets:[{ data: values, backgroundColor:['#10b981','#f87171'] }] },
         options: { responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:12,font:{size:11}}}} }
       });
     };
 
     const updateStatCards = (data) => {
-      const totalPresent = data.statusDist.filter((s)=>['present','online','late'].includes(s.status)).reduce((a,s)=>a+s.n,0);
+      const totalPresent = data.statusDist.filter((s)=>['present'].includes(s.status)).reduce((a,s)=>a+s.n,0);
       const totalRecords = data.statusDist.reduce((a,s)=>a+s.n,0);
       const rate = totalRecords ? Math.round(totalPresent/totalRecords*100) : 0;
       const statActive = el('stat-active-members');
@@ -357,10 +382,51 @@ async function editMeeting(meeting) { return meetingForm(meeting); }
 
 async function meetingForm(editing) {
   const m = editing || {};
+  const isSeries = !!m.series_id;
+  const repeatInfo = buildRepeatInfo(m);
   const { data } = await api.get('/orgs/groups');
   const gOpts = data.groups.map((g)=>`<option value="${g.group_id}" ${m.group_id==g.group_id?'selected':''}>[${catLabel(g.category_code)}] ${esc(g.name)}</option>`).join('');
   const types = ['주일예배','수요예배','구역예배','교구모임','부서모임','교회학교','새벽기도','특별집회','기타'];
   const today = new Date().toISOString().slice(0,10);
+  const repeatUntilDefault = m.series_until_date || new Date(Date.now() + 1000 * 60 * 60 * 24 * 90).toISOString().slice(0,10);
+  const repeatFields = editing ? '' : `
+      <div class="border-t pt-3">
+        <label class="flex items-center gap-2 text-xs font-semibold text-slate-600">
+          <input type="checkbox" id="repeat-enabled" name="repeat_enabled" class="rounded border-slate-300" />
+          ${t('att.repeat_label')}
+        </label>
+        <div id="repeat-fields" class="mt-3 space-y-3 hidden">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.repeat_freq')}</label>
+              <select name="repeat_freq" class="w-full px-3 py-2.5 border rounded-lg">
+                <option value="weekly">${t('att.repeat_weekly')}</option>
+                <option value="monthly">${t('att.repeat_monthly')}</option>
+              </select>
+            </div>
+            <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.repeat_interval')}</label>
+              <input type="number" name="repeat_interval" min="1" value="1" class="w-full px-3 py-2.5 border rounded-lg" />
+            </div>
+          </div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.repeat_until')}</label>
+            <input type="date" name="repeat_until" value="${repeatUntilDefault}" class="w-full px-3 py-2.5 border rounded-lg" />
+          </div>
+        </div>
+      </div>`;
+  const seriesScope = isSeries ? `
+      <div class="border-t pt-3 space-y-2">
+        <div class="text-[11px] text-slate-500">${esc(repeatInfo)}</div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.repeat_scope')}</label>
+          <select name="repeat_scope" class="w-full px-3 py-2.5 border rounded-lg">
+            <option value="this">${t('att.scope_this')}</option>
+            <option value="future">${t('att.scope_future')}</option>
+            <option value="past">${t('att.scope_past')}</option>
+            <option value="all">${t('att.scope_all')}</option>
+          </select>
+          <p class="text-[11px] text-slate-400 mt-1">${t('att.repeat_scope_desc')}</p>
+        </div>
+      </div>` : '';
+
   const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${editing?t('att.edit_meeting'):t('att.add_meeting')}</h3>
     <form id="mt-form" class="space-y-3">
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.org')}</label><select name="group_id" class="w-full px-3 py-2.5 border rounded-lg">${gOpts}</select></div>
@@ -374,12 +440,36 @@ async function meetingForm(editing) {
         <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.location')}</label><input name="location" value="${esc(m.location||'')}" class="w-full px-3 py-2.5 border rounded-lg" /></div>
       </div>
       <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.address')}</label><input name="address" value="${esc(m.address||'')}" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+      ${repeatFields}
+      ${seriesScope}
       <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${editing?t('common.save'):t('common.register')}</button></div>
     </form></div>`);
   openModal(box);
+
+  const repeatToggle = box.querySelector('#repeat-enabled');
+  const repeatBlock = box.querySelector('#repeat-fields');
+  if (repeatToggle && repeatBlock) {
+    const syncRepeat = () => { repeatBlock.classList.toggle('hidden', !repeatToggle.checked); };
+    repeatToggle.addEventListener('change', syncRepeat);
+    syncRepeat();
+  }
+
+  const scopeSelect = box.querySelector('select[name="repeat_scope"]');
+  const dateInput = box.querySelector('input[name="meeting_date"]');
+  if (scopeSelect && dateInput) {
+    const syncDateLock = () => { dateInput.disabled = scopeSelect.value !== 'this'; };
+    scopeSelect.addEventListener('change', syncDateLock);
+    syncDateLock();
+  }
+
   box.querySelector('#mt-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target));
+    if (!payload.repeat_enabled) {
+      delete payload.repeat_freq;
+      delete payload.repeat_interval;
+      delete payload.repeat_until;
+    }
     try {
       if (editing) {
         await api.put(`/attendance/meetings/${editing.meeting_id}`, payload);
@@ -387,7 +477,12 @@ async function meetingForm(editing) {
         location.hash = `#/attendance/meeting/${editing.meeting_id}`; router();
       } else {
         const { data } = await api.post('/attendance/meetings', payload);
-        closeModal(); toast(t('att.meeting_added'), 'success');
+        closeModal();
+        if (data.created_count && data.created_count > 1) {
+          toast(t('att.repeat_created', { n: data.created_count }), 'success');
+        } else {
+          toast(t('att.meeting_added'), 'success');
+        }
         location.hash = `#/attendance/meeting/${data.meeting_id}`;
       }
     } catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
@@ -395,10 +490,17 @@ async function meetingForm(editing) {
 }
 
 /* ---- delete a meeting ---- */
-async function deleteMeeting(meetingId, title) {
-  if (!confirm(t('att.del_meeting_confirm', { title }))) return;
+async function deleteMeeting(meeting) {
+  let scope = 'this';
+  if (meeting.series_id) {
+    const selected = await selectSeriesScope('delete');
+    if (!selected) return;
+    scope = selected;
+  } else {
+    if (!confirm(t('att.del_meeting_confirm', { title: meeting.title }))) return;
+  }
   try {
-    await api.delete(`/attendance/meetings/${meetingId}`);
+    await api.delete(`/attendance/meetings/${meeting.meeting_id}`, { params: { scope } });
     toast(t('att.meeting_deleted'), 'success');
     location.hash = '#/attendance';
     router();
@@ -407,11 +509,47 @@ async function deleteMeeting(meetingId, title) {
   }
 }
 
+function selectSeriesScope(action) {
+  return new Promise((resolve) => {
+    const title = action === 'delete' ? t('att.scope_delete_title') : t('att.scope_edit_title');
+    const desc = action === 'delete' ? t('att.scope_delete_desc') : t('att.scope_edit_desc');
+    const box = h(`<div class="p-6 space-y-3">
+      <div>
+        <h3 class="text-lg font-bold text-slate-800">${title}</h3>
+        <p class="text-sm text-slate-500">${desc}</p>
+      </div>
+      <div class="space-y-2 text-sm">
+        <label class="flex items-center gap-2"><input type="radio" name="series-scope" value="this" checked />${t('att.scope_this')}</label>
+        <label class="flex items-center gap-2"><input type="radio" name="series-scope" value="future" />${t('att.scope_future')}</label>
+        <label class="flex items-center gap-2"><input type="radio" name="series-scope" value="past" />${t('att.scope_past')}</label>
+        <label class="flex items-center gap-2"><input type="radio" name="series-scope" value="all" />${t('att.scope_all')}</label>
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" class="flex-1 py-2.5 border rounded-lg text-slate-600" id="scope-cancel">${t('common.cancel')}</button>
+        <button type="button" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold" id="scope-apply">${t('att.scope_apply')}</button>
+      </div>
+    </div>`);
+    openModal(box);
+    box.querySelector('#scope-cancel').addEventListener('click', () => {
+      closeModal();
+      resolve(null);
+    });
+    box.querySelector('#scope-apply').addEventListener('click', () => {
+      const selected = box.querySelector('input[name="series-scope"]:checked');
+      const value = selected ? selected.value : 'this';
+      closeModal();
+      resolve(value);
+    });
+  });
+}
+
 async function attendanceMeeting(content, meetingId) {
   content.innerHTML = loadingHtml();
   const { data } = await api.get(`/attendance/meetings/${meetingId}`);
   const m = data.meeting;
   const roster = data.roster || [];
+  const notes = data.notes || [];
+  window.__absenceReasons = data.absence_reasons || [];
   const canEdit = hasPerm('attendance.edit');
   const canManage = hasPerm('meeting.manage');
 
@@ -420,16 +558,17 @@ async function attendanceMeeting(content, meetingId) {
     <div class="card p-5 mb-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <h2 class="text-lg font-bold text-slate-800">${esc(m.title)}</h2>
+          <h2 class="text-lg font-bold text-slate-800">${esc(m.title)}${m.series_id?` <span class="ml-2 px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 text-[11px]">${t('att.repeat_badge')}</span>`:''}</h2>
           <p class="text-sm text-slate-500">${esc(m.group_name)} · ${esc(t('mtype.' + m.meeting_type))} · ${esc(m.meeting_date)}${m.start_time?` ${esc(m.start_time)}`:''}${m.location?` · ${esc(m.location)}`:''}${m.address?` · ${esc(m.address)}`:''}</p>
+          ${m.series_id?`<p class="text-xs text-brand-600 mt-1">${esc(buildRepeatInfo(m))}</p>`:''}
         </div>
         ${canManage?`<div class="flex items-center gap-2 shrink-0">
           <button onclick='editMeeting(${JSON.stringify(m)})' title="${t('common.edit')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-brand-600"><i class="fas fa-pen text-xs"></i></button>
-          <button onclick='deleteMeeting(${m.meeting_id}, ${JSON.stringify(m.title)})' title="${t('common.delete')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button>
+          <button onclick='deleteMeeting(${JSON.stringify(m)})' title="${t('common.delete')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button>
         </div>`:''}
       </div>
     </div>
-    <div class="card p-5">
+    <div class="card p-5 mb-4">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-bold text-slate-700">${t('att.roster')} (${roster.length}${t('common.people_unit')})</h3>
         ${canEdit?`<div class="flex gap-2">
@@ -441,18 +580,38 @@ async function attendanceMeeting(content, meetingId) {
         ${roster.map((r)=>rosterRow(r, canEdit)).join('') || `<div class="text-sm text-slate-400 py-6 text-center">${t('att.no_members_in_org')}</div>`}
       </div>
       ${canEdit && roster.length?`<button onclick="saveAttendance(${meetingId})" class="mt-4 w-full py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold"><i class="fas fa-save mr-1"></i>${t('att.save')}</button>`:''}
+    </div>
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-bold text-slate-700">${t('att.notes_title')}</h3>
+        ${canEdit?`<button onclick="addMeetingNote(${meetingId})" class="text-xs px-3 py-1.5 rounded-lg bg-brand-50 text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('att.add_note')}</button>`:''}
+      </div>
+      <div class="space-y-3">
+        ${notes.length ? notes.map((n)=>meetingNoteRow(n, canEdit, meetingId)).join('') : `<div class="text-sm text-slate-400 py-4 text-center">${t('att.no_notes')}</div>`}
+      </div>
     </div>`;
 }
 
 function rosterRow(r, canEdit) {
-  const name = r.korean_name || `${r.first_name} ${r.last_name}`;
+  const name = nativeName(r);
   const cur = r.status || 'present';
-  const statuses = ['present','absent','excused','online','late'];
-  return `<div class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100" data-member="${r.member_id}">
+  const statuses = ['present','absent'];
+  const reasonOptions = ['<option value="">-</option>']
+    .concat((window.__absenceReasons || []).map((item)=>`<option value="${item.reason_id}" ${String(item.reason_id)===String(r.absence_reason_id||'')?'selected':''}>${esc(localizeMetaName(item))}</option>`))
+    .join('');
+  const reasonLabelText = r.absence_reason_id ? reasonLabel(r.absence_reason_id) : '';
+  return `<div class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100" data-member="${r.member_id}" data-reason="${r.absence_reason_id || ''}">
     ${avatar(r.photo_url, r.first_name, r.last_name, 'w-9 h-9')}
-    <div class="flex-1 min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(name)}</div>${r.title?`<div class="text-xs text-slate-400">${esc(r.title)}</div>`:''}</div>
-    ${canEdit ? `<div class="flex gap-1 flex-wrap justify-end">${statuses.map((s)=>`
-      <button data-status="${s}" onclick="setStatus(${r.member_id},'${s}')" class="att-btn text-[11px] px-2 py-1 rounded-md ${s===cur?STATUS_COLOR[s]+' text-white':'bg-slate-100 text-slate-500'}">${statusLabel(s)}</button>`).join('')}</div>`
+    <div class="flex-1 min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(name)}</div>${r.title?`<div class="text-xs text-slate-400">${esc(r.title)}</div>`:''}
+      ${!canEdit && cur === 'absent' && reasonLabelText ? `<div class="text-xs text-slate-400 mt-1">${t('att.absence_reason')}: ${esc(reasonLabelText)}</div>`:''}
+    </div>
+    ${canEdit ? `<div class="flex flex-col items-end gap-1">
+      <div class="flex gap-1 flex-wrap justify-end">${statuses.map((s)=>`
+        <button data-status="${s}" onclick="setStatus(${r.member_id},'${s}')" class="att-btn text-[11px] px-2 py-1 rounded-md ${s===cur?STATUS_COLOR[s]+' text-white':'bg-slate-100 text-slate-500'}">${statusLabel(s)}</button>`).join('')}</div>
+      <select class="att-reason text-[11px] px-2 py-1 rounded-md border border-slate-200 ${cur==='absent'?'':'hidden'}" onchange="setReason(${r.member_id}, this.value)">
+        ${reasonOptions}
+      </select>
+    </div>`
       : `<span class="badge ${STATUS_COLOR[cur]} text-white">${statusLabel(cur)}</span>`}
   </div>`;
 }
@@ -464,16 +623,179 @@ function setStatus(memberId, status) {
     const s = b.dataset.status;
     b.className = `att-btn text-[11px] px-2 py-1 rounded-md ${s===status?STATUS_COLOR[s]+' text-white':'bg-slate-100 text-slate-500'}`;
   });
+  const reasonSelect = row.querySelector('.att-reason');
+  if (reasonSelect) {
+    if (status === 'absent') {
+      reasonSelect.classList.remove('hidden');
+    } else {
+      reasonSelect.classList.add('hidden');
+      reasonSelect.value = '';
+      row.dataset.reason = '';
+    }
+  }
+}
+function setReason(memberId, reasonId) {
+  const row = document.querySelector(`#roster [data-member="${memberId}"]`);
+  row.dataset.reason = reasonId || '';
 }
 function bulkSet(status) {
   document.querySelectorAll('#roster [data-member]').forEach((row) => setStatus(parseInt(row.dataset.member,10), status));
 }
 async function saveAttendance(meetingId) {
   const records = [...document.querySelectorAll('#roster [data-member]')].map((row) => ({
-    member_id: parseInt(row.dataset.member,10), status: row.dataset.status || 'present',
+    member_id: parseInt(row.dataset.member,10),
+    status: row.dataset.status || 'present',
+    absence_reason_id: row.dataset.reason ? parseInt(row.dataset.reason, 10) : null,
   }));
   try {
     await api.post(`/attendance/meetings/${meetingId}/record`, { records });
     toast(t('att.saved_count', { n: records.length }), 'success');
   } catch (err) { toast(err.response?.data?.error || t('att.save_failed'), 'error'); }
+}
+
+function meetingNoteRow(note, canEdit, meetingId) {
+  const typeLabel = t('att.note_type_' + note.note_type) || note.note_type;
+  const nJson = JSON.stringify(note).replace(/'/g, '&#39;');
+  // type badge color
+  const typeBadgeColor = { prayer:'bg-purple-50 text-purple-600', news:'bg-blue-50 text-blue-600', testimony:'bg-amber-50 text-amber-700', other:'bg-slate-100 text-slate-500' };
+  const badgeClass = typeBadgeColor[note.note_type] || typeBadgeColor.other;
+  // Render content: if HTML tags detected, render as HTML; else as plain text
+  const isHtml = /<[a-z][\s\S]*>/i.test(note.content || '');
+  const contentHtml = isHtml ? (note.content || '') : `<p class="whitespace-pre-line">${esc(note.content || '')}</p>`;
+  return `<div class="p-4 border border-slate-100 rounded-xl bg-white">
+    <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center gap-2">
+        <span class="badge ${badgeClass} text-xs px-2 py-0.5">${esc(typeLabel)}</span>
+        <span class="text-xs text-slate-400">${esc((note.created_at||'').slice(0,10))}</span>
+      </div>
+      ${canEdit?`<div class="flex items-center gap-2">
+        <button onclick='editMeetingNote(${meetingId}, ${nJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+        <button onclick='deleteMeetingNote(${meetingId}, ${note.note_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>
+      </div>`:''}
+    </div>
+    <div class="text-sm text-slate-700 prose prose-sm max-w-none">${contentHtml}</div>
+  </div>`;
+}
+
+function addMeetingNote(meetingId) {
+  openMeetingNoteForm(meetingId, null);
+}
+
+function editMeetingNote(meetingId, note) {
+  openMeetingNoteForm(meetingId, note);
+}
+
+function openMeetingNoteForm(meetingId, note) {
+  const n = note || {};
+  const typeOptions = ['prayer','news','testimony','other']
+    .map((nt)=>`<option value="${nt}" ${n.note_type===nt?'selected':''}>${t('att.note_type_' + nt)}</option>`)
+    .join('');
+  const box = h(`<div class="p-6 max-h-[85vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-4">${note?t('att.edit_note'):t('att.add_note')}</h3>
+    <form id="note-form" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.note_type')}</label>
+        <select name="note_type" class="w-full px-3 py-2.5 border rounded-lg">${typeOptions}</select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.note_content')}</label>
+        <div id="note-editor-toolbar" class="flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600">
+          <button type="button" class="note-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold" data-cmd="bold" title="Bold"><b>B</b></button>
+          <button type="button" class="note-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic" data-cmd="italic" title="Italic"><i>I</i></button>
+          <button type="button" class="note-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline" data-cmd="underline" title="Underline"><u>U</u></button>
+          <span class="border-l border-slate-300 mx-1"></span>
+          <button type="button" class="note-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertUnorderedList" title="Bullet list">&#8226; List</button>
+          <button type="button" class="note-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+          <span class="border-l border-slate-300 mx-1"></span>
+          <select id="note-heading-sel" class="text-xs border border-slate-200 rounded px-1 py-0.5 bg-white" title="${t('att.editor_heading')}">
+            <option value="p">${t('att.editor_normal')}</option>
+            <option value="h3">${t('att.editor_heading3')}</option>
+            <option value="h4">${t('att.editor_heading4')}</option>
+          </select>
+        </div>
+        <div id="note-editor"
+          contenteditable="true"
+          class="min-h-[140px] max-h-[340px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700"
+          placeholder="${esc(t('att.note_content_ph'))}"></div>
+        <input type="hidden" name="content" />
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button>
+      </div>
+    </form>
+  </div>`);
+  openModal(box, { size:'max-w-xl' });
+
+  const editor = box.querySelector('#note-editor');
+  const contentInput = box.querySelector('input[name="content"]');
+
+  // Set initial content
+  if (n.content) {
+    if (/<[a-z][\s\S]*>/i.test(n.content)) {
+      editor.innerHTML = n.content;
+    } else {
+      editor.innerHTML = n.content.split('\n').map((line) => `<p>${esc(line) || '<br>'}</p>`).join('');
+    }
+  }
+
+  // Toolbar buttons
+  box.querySelectorAll('.note-tool').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.dataset.cmd, false, null);
+      editor.focus();
+    });
+  });
+
+  // Heading select
+  const headingSel = box.querySelector('#note-heading-sel');
+  if (headingSel) {
+    headingSel.addEventListener('change', (e) => {
+      e.preventDefault();
+      const tag = e.target.value;
+      if (tag === 'p') {
+        document.execCommand('formatBlock', false, 'p');
+      } else {
+        document.execCommand('formatBlock', false, tag);
+      }
+      editor.focus();
+      setTimeout(() => { headingSel.value = 'p'; }, 200);
+    });
+  }
+
+  box.querySelector('#note-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const htmlContent = editor.innerHTML.trim();
+    if (!htmlContent || htmlContent === '<br>') {
+      toast(t('att.note_content_ph'), 'error');
+      return;
+    }
+    contentInput.value = htmlContent;
+    const fd = new FormData(e.target);
+    const payload = { note_type: fd.get('note_type'), content: fd.get('content') };
+    try {
+      if (note) {
+        await api.put(`/attendance/meetings/${meetingId}/notes/${n.note_id}`, payload);
+      } else {
+        await api.post(`/attendance/meetings/${meetingId}/notes`, payload);
+      }
+      closeModal();
+      toast(t('common.saved'), 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
+async function deleteMeetingNote(meetingId, noteId) {
+  if (!confirm(t('att.note_delete_confirm'))) return;
+  try {
+    await api.delete(`/attendance/meetings/${meetingId}/notes/${noteId}`);
+    toast(t('common.deleted'), 'success');
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
 }

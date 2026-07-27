@@ -53,6 +53,7 @@ Pages.login = function () {
     ${oauthButtons()}
     <div class="text-right text-xs mt-3"><a href="#/reset" class="text-brand-600 font-semibold">${t('auth.forgot_pw')}</a></div>
     <p class="text-center text-sm text-slate-500 mt-6">${t('auth.no_account')} <a href="#/signup" class="text-brand-600 font-semibold">${t('auth.signup')}</a></p>
+    <p class="text-center text-sm text-slate-500 mt-2"><a href="#/register" class="text-brand-600 font-semibold">${t('public.register_link')}</a></p>
     <div class="mt-4 text-center text-[11px] text-slate-400">${t('auth.demo_account')} <b>admin</b> / <b>admin1234</b></div>
   `);
 
@@ -121,6 +122,115 @@ Pages.signup = function () {
     } catch (err) {
       toast(err.response?.data?.error || t('auth.signup_failed'), 'error');
       btn.disabled = false; btn.textContent = t('auth.do_signup');
+    }
+  });
+};
+
+Pages.publicRegister = async function () {
+  const app = el('app');
+  app.dataset.shell = '';
+  app.innerHTML = authShellHtml(`
+    <h2 class="text-xl font-bold text-slate-800 mb-1">${t('public.register_title')}</h2>
+    <p class="text-sm text-slate-500 mb-4">${t('public.register_desc')}</p>
+    <form id="public-register-form" class="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('public.first_name')} *</label><input name="first_name" required class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('public.last_name')} *</label><input name="last_name" required class="w-full px-3 py-2.5 border rounded-lg" /></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_last_name')} ${t('common.optional')}</label><input name="korean_last_name" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.korean_first_name')} ${t('common.optional')}</label><input name="korean_first_name" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.gender')}</label>
+          <select name="gender" class="w-full px-3 py-2.5 border rounded-lg"><option value="">-</option><option value="M">${t('gender.M')}</option><option value="F">${t('gender.F')}</option></select>
+        </div>
+        <div class="col-span-2"><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.birth_date')}</label>
+          <input type="date" name="birth_date" class="w-full px-3 py-2.5 border rounded-lg" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_mobile')} *</label><input name="mobile" required class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_email')}</label><input type="email" name="email" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('public.photo')}</label>
+        <input name="photo" type="file" accept="image/*" class="w-full px-3 py-2.5 border rounded-lg" />
+      </div>
+      <div class="pt-2 border-t border-slate-100">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.address_line1')}</label><input name="address_line1" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.address_line2')}</label><input name="address_line2" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mt-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.city')}</label><input name="city" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.state')}</label><input name="state" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.zip_code')}</label><input name="zip_code" class="w-full px-3 py-2.5 border rounded-lg" /></div>
+        </div>
+      </div>
+      <div class="pt-2 border-t border-slate-100">
+        <div class="grid grid-cols-1 gap-3">
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('public.affiliation')}</label>
+            <select name="group_id" class="w-full px-3 py-2.5 border rounded-lg"><option value="">${t('public.affiliation_none')}</option></select>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg transition">${t('public.register_submit')}</button>
+      <p class="text-center text-xs text-slate-400">${t('public.register_hint')}</p>
+      <p class="text-center text-sm text-slate-500"><a href="#/login" class="text-brand-600 font-semibold">${t('auth.login')}</a></p>
+    </form>
+  `);
+
+  const form = el('public-register-form');
+  if (!form) return;
+  const groupSelect = form.querySelector('[name="group_id"]');
+  const submitBtn = form.querySelector('button[type="submit"]');
+
+  try {
+    const { data } = await api.get('/public/member-meta');
+    const groups = data.groups || [];
+    groupSelect.insertAdjacentHTML('beforeend', groups.map((g) => `<option value="${g.group_id}">[${catLabel(g.category_code)}] ${esc(g.name)}</option>`).join(''));
+  } catch (err) {
+    console.error('public meta load failed', err);
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.innerHTML = '<i class="fas fa-circle-notch spin"></i>'; }
+    const fd = new FormData(form);
+    const payload = Object.fromEntries(fd);
+    const photoInput = form.querySelector('[name="photo"]');
+    const photoFile = photoInput?.files?.[0];
+    delete payload.photo;
+
+    if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(payload.email))) {
+      toast(t('auth.email_invalid') || t('common.invalid'), 'error');
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = t('public.register_submit'); }
+      return;
+    }
+
+    if (photoFile) {
+      try {
+        if (typeof resizeImage !== 'function') throw new Error('resizeImage missing');
+        payload.photo_url = await resizeImage(photoFile, 500, 500, 0.82);
+      } catch (err) {
+        console.error('photo resize failed', err);
+        toast(t('member.upload_failed'), 'error');
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = t('public.register_submit'); }
+        return;
+      }
+    }
+    if (!payload.group_id) delete payload.group_id;
+
+    try {
+      await api.post('/public/members', payload);
+      toast(t('public.register_success'), 'success');
+      form.reset();
+    } catch (err) {
+      console.error('public register failed', err);
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = t('public.register_submit'); }
     }
   });
 };

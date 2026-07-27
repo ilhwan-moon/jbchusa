@@ -2,7 +2,12 @@
  * JBCHUSA Church Management System - Frontend SPA
  * ============================================================ */
 const App = {
-  state: { user: null, route: '#/login', params: {} },
+  state: {
+    user: null,
+    route: '#/login',
+    params: {},
+    memberMeta: { memberTypes: [], employmentTypes: [], memberStatuses: [] },
+  },
 };
 
 const api = axios.create({ baseURL: '/api' });
@@ -13,6 +18,30 @@ const el = (id) => document.getElementById(id);
 function h(html) { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, (m) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 function initials(first, last) { return ((first||'?')[0] + (last||'')[0] || '?').toUpperCase(); }
+function nativeName(m) {
+  if (!m) return '';
+  const preferred = (m.preferred_name || '').trim();
+  if (preferred) return preferred;
+  return `${m.first_name || ''} ${m.last_name || ''}`.trim();
+}
+function localizeMetaName(item) {
+  if (!item) return '';
+  const lang = (typeof getLang === 'function') ? getLang() : 'ko';
+  if (lang === 'en') return item.name_en || item.name || '';
+  if (lang === 'es') return item.name_es || item.name || '';
+  return item.name || '';
+}
+function metaLabel(kind, value) {
+  if (!value) return '';
+  const list = (App.state.memberMeta && App.state.memberMeta[kind]) || [];
+  const found = list.find((item) => item.name === value);
+  if (found) return localizeMetaName(found);
+  if (typeof t === 'function' && kind === 'memberStatuses') {
+    const translated = t('status.' + value);
+    if (translated && translated !== 'status.' + value) return translated;
+  }
+  return value;
+}
 
 function toast(msg, type = 'info') {
   const colors = { info:'bg-slate-800', success:'bg-emerald-600', error:'bg-red-600', warn:'bg-amber-500' };
@@ -61,7 +90,7 @@ function catLabel(code) {
 
 function statusBadge(status) {
   const map = { '활동':'bg-emerald-100 text-emerald-700','휴면':'bg-amber-100 text-amber-700','이전':'bg-slate-100 text-slate-600','사망':'bg-slate-200 text-slate-500' };
-  const label = (typeof t === 'function') ? t('status.' + status) : status;
+  const label = metaLabel('memberStatuses', status) || ((typeof t === 'function') ? t('status.' + status) : status);
   return `<span class="badge ${map[status]||'bg-slate-100 text-slate-600'}">${esc(label)}</span>`;
 }
 
@@ -69,6 +98,21 @@ function statusBadge(status) {
 async function loadMe() {
   try { const { data } = await api.get('/auth/me'); App.state.user = data.user; }
   catch { App.state.user = null; }
+}
+
+async function loadMemberMeta() {
+  try {
+    const { data } = await api.get('/public/member-meta');
+    App.state.memberMeta = {
+      memberTypes: data.member_types || [],
+      employmentTypes: data.employment_types || [],
+      memberStatuses: data.member_statuses || [],
+    };
+    App.state.metaGroups = data.groups || [];
+    App.state.metaPositions = data.positions || [];
+  } catch (err) {
+    console.warn('member meta load failed', err);
+  }
 }
 
 /* ---------- router ---------- */
@@ -84,11 +128,12 @@ function parseHash() {
 async function router() {
   const r = parseHash();
   // not logged in -> force login/signup
-  if (!App.state.user && !['login','signup','reset'].includes(r.name)) { location.hash = '#/login'; return; }
-  if (App.state.user && ['login','signup'].includes(r.name)) { location.hash = '#/dashboard'; return; }
+  if (!App.state.user && !['login','signup','reset','register'].includes(r.name)) { location.hash = '#/login'; return; }
+  if (App.state.user && ['login','signup','register'].includes(r.name)) { location.hash = '#/dashboard'; return; }
 
   if (r.name === 'login') return Pages.login();
   if (r.name === 'signup') return Pages.signup();
+  if (r.name === 'register') return Pages.publicRegister();
 
   renderLayout(r.name);
   const content = el('page-content');
@@ -170,6 +215,7 @@ function hideBoot() {
   } catch (e) {}
   try {
     await loadMe();
+    await loadMemberMeta();
   } catch (e) {
     console.error('init failed', e);
   } finally {

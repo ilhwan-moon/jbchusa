@@ -12,7 +12,7 @@ Cloudflare Pages + Hono + D1(SQLite) 기반으로 엣지에서 동작합니다.
 ## 주요 기능 (완료)
 1. **회원가입 / 로그인** — 이메일 필수, 관리자 승인 후 로그인 가능, 외부계정(Google / Facebook / Instagram / Outlook) 연동 옵션, 비밀번호 재설정(이메일/Gmail)
 2. **내 정보** — 프로필(이름/이메일) 수정, 비밀번호 변경
-3. **관리자 페이지** — 기초코드 관리(직분/언어/조직), 사용자/역할(RBAC) 관리, 승인/삭제
+3. **관리자 페이지** — 기초코드 관리(직분/언어/조직/성도구분/근무형태/상태), 사용자/역할(RBAC) 관리, 승인/삭제
 4. **교구구역 조회/등록/수정** — 교구>구역 트리 + 소속 성도 목록 + 검색 + **교구/구역 등록/수정**
 5. **교제부서 조회/등록/수정** — 부서별 구성원 조회 + **부서 등록/수정**
 6. **교회학교 조회/등록/수정** — 부서/학년반 구조 + 학생·교사 조회 + **부서/반 등록/수정**
@@ -20,19 +20,23 @@ Cloudflare Pages + Hono + D1(SQLite) 기반으로 엣지에서 동작합니다.
 - 각 조회 페이지 우측 상단 「등록」 버튼으로 해당 카테고리 조직을 바로 추가 (org.manage 권한 필요)
 - 관리자 > 조직관리에서 조직 수정/비활성화 가능
 - **사용자 등록** — 관리자 > 사용자 탭에서 신규 사용자 추가 및 역할 부여
-8. **출석관리** — 출석 대시보드(통계/차트), 모임 등록, 명단 기반 출석 입력(개별/일괄), **모임 주소 관리**
+8. **출석관리** — 출석 대시보드(통계/차트), 모임 등록, 반복 모임 등록, 명단 기반 출석 입력(개별/일괄), **모임 주소 관리**, 반복 일정 수정/삭제 범위 선택(이번/이전/이후/전체)
 9. **Google Calendar 연동(서비스 계정)** — 관리자에서 캘린더 ID/서비스 계정 JSON/타임존/활성화 설정 후 모임 생성·수정·삭제 시 자동 동기화
 10. **주소록** — 전체 성도 검색/조회 + 엑셀 다운로드/업로드 + 템플릿 제공(주소/소속/직분 포함)
 11. **가족관리** — 성도 상세의 가족 구성원 등록 시 세대 자동 생성/연동, 대표 성도 지정 가능
 - **성도 상세** — 전화번호 클릭 시 전화 걸기(`tel:`), 주소 클릭 시 Google Maps 연결, **사진 업로드**(클라이언트 리사이즈 후 저장)
 12. **다국어 (한국어 / English / Español)** — 사이드바·상단바·로그인 화면의 언어 선택기로 전체 UI 언어를 즉시 전환. 선택한 언어는 브라우저(`localStorage`)에 저장되어 다음 방문 시 유지됩니다.
    - 구현: `public/static/i18n.js` (286개 번역 키 × 3개 언어), 전역 `t(key, vars)` / `setLang(lang)` / `getLang()` 함수 제공. 언어 변경 시 현재 화면을 자동 재렌더링.
+13. **공개 성도 등록** — 로그인 없이 `#/register`에서 성도 개인정보 등록 가능. 등록 시 주소록에 자동 반영.
+14. **성도 메타 옵션 다국어** — 성도구분/근무형태/상태 옵션에 `name_en`, `name_es` 저장 후 UI 언어에 맞춰 표시.
+15. **성도 표시명** — 표시명은 `preferred_name` 또는 `first_name + last_name` 기준(한국어 이름은 옵션만 저장).
 
 ## 접속 / 기능 경로 (URI)
 SPA 해시 라우팅 방식입니다.
 | 경로 | 설명 |
 |------|------|
 | `#/login`, `#/signup` | 로그인 / 회원가입 |
+| `#/register` | 공개 성도 등록 (로그인 불필요) |
 | `#/dashboard` | 대시보드 |
 | `#/orgs/PARISH` | 교구구역 조회 |
 | `#/orgs/FELLOWSHIP` | 교제부서 조회 |
@@ -46,15 +50,16 @@ SPA 해시 라우팅 방식입니다.
 | `#/account` | 내 정보(프로필/비밀번호) |
 | `#/reset` | 비밀번호 재설정 |
 | `#/households`, `#/households/<id>` | 가족(세대) 관리 |
-| `#/admin/{users,positions,languages,orgs,calendar}` | 관리자 |
+| `#/admin/{users,positions,member-types,employment-types,member-statuses,languages,orgs,calendar}` | 관리자 |
 
 ### 주요 API (인증 필요, `/api`)
 - `POST /api/auth/login` · `POST /api/auth/signup` · `POST /api/auth/oauth/:provider` · `POST /api/auth/logout` · `GET /api/auth/me`
 - `GET /api/auth/profile` · `PUT /api/auth/profile` · `PUT /api/auth/password` · `POST /api/auth/password/request` · `POST /api/auth/password/reset`
 - `GET /api/orgs/categories` · `GET /api/orgs/groups?category=` · `GET /api/orgs/groups/:id/members`
+- `GET /api/public/member-meta` · `POST /api/public/members` (공개 등록)
 - `GET /api/members?q=&status=` · `GET /api/members/export` · `POST /api/members/bulk` · `GET/POST/PUT/DELETE /api/members/:id` · `PUT /api/members/:id/photo`
 - `POST /api/members/:id/relationships` · `POST /api/members/:id/assignments`
-- `GET /api/attendance/dashboard` · `GET/POST /api/attendance/meetings` · `POST /api/attendance/meetings/:id/record`
+- `GET /api/attendance/dashboard` · `GET/POST /api/attendance/meetings` · `PUT/DELETE /api/attendance/meetings/:id?scope={this|past|future|all}` · `POST /api/attendance/meetings/:id/record`
 - `GET/POST/PUT /api/households` · `PUT /api/households/:id/head` · `POST /api/households/:id/members`
 - `GET/PUT /api/admin/calendar` · `GET/POST /api/admin/{positions,languages,users,groups}` · `PUT /api/admin/users/:id/roles`
 - `PUT /api/admin/users/:id/active` · `PUT /api/admin/users/:id/password` · `DELETE /api/admin/users/:id`
@@ -63,23 +68,24 @@ SPA 해시 라우팅 방식입니다.
 - **데이터 모델**: 첨부된 MySQL DDL을 D1/SQLite로 이식
   - 마스터: `churches`, `group_categories`, `positions`, `languages`
   - 조직: `org_groups`(트리)
-  - 성도/가족: `households`, `members`, `member_contacts`, `member_languages`, `member_relationships`
+  - 성도/가족: `households`, `members`, `member_contacts`, `member_languages`, `member_relationships`, `member_types`, `employment_types`, `member_statuses`
   - 소속/직분: `member_assignments`, `pastor_charges`
   - 권한(RBAC): `users`, `roles`, `permissions`, `role_permissions`, `user_roles`, `password_resets`
-  - 출석: `meetings`(address, google_event_id 포함), `attendances`
+  - 출석: `meetings`(address, google_event_id, series_id 포함), `meeting_series`, `attendances`
   - 시스템 설정: `admin_calendar_settings`
 - **스토리지**: Cloudflare D1 (SQLite). 성도 사진은 클라이언트에서 리사이즈 후 data URL로 저장.
-- **마이그레이션**: `migrations/0001~0006` (스키마 / 기초코드 / 샘플데이터 / 관리자계정 / 모임주소·캘린더 설정 / 비밀번호 재설정)
+- **마이그레이션**: `migrations/0001~0009` (스키마 / 기초코드 / 샘플데이터 / 관리자계정 / 모임주소·캘린더 설정 / 비밀번호 재설정 / 반복 모임 / 성도 메타옵션 + 메타 다국어 컬럼)
 
 ## 사용 가이드
 1. `#/login`에서 데모 계정으로 로그인: **admin / admin1234** (시스템관리자)
 2. 또는 외부 계정(Google/Facebook/Instagram/Outlook) 버튼으로 데모 연동 로그인
 3. 좌측(모바일은 ☰) 메뉴에서 각 기능으로 이동
 4. 주소록 → 우측 상단에서 엑셀 다운로드/템플릿 다운로드/엑셀 업로드 지원(주소/소속/직분 포함)
-5. 내 정보 → 프로필 수정 및 비밀번호 변경
-6. 비밀번호 분실 시 로그인 화면의 “비밀번호 찾기”로 재설정 링크 요청
-7. 조직 조회 → 성도 카드 클릭 → 상세에서 전화/주소/사진/가족/소속 관리
-8. 관리자 → 캘린더 탭에서 Google Calendar 연동 설정(캘린더 공유 대상에 서비스 계정 이메일 추가 필요)
+5. 로그인 없이 성도 등록: `#/register`에서 공개 등록 폼 작성 후 제출
+6. 내 정보 → 프로필 수정 및 비밀번호 변경
+7. 비밀번호 분실 시 로그인 화면의 “비밀번호 찾기”로 재설정 링크 요청
+8. 조직 조회 → 성도 카드 클릭 → 상세에서 전화/주소/사진/가족/소속 관리
+9. 관리자 → 캘린더 탭에서 Google Calendar 연동 설정(캘린더 공유 대상에 서비스 계정 이메일 추가 필요)
 
 ## 보안 / 인증
 - 비밀번호: PBKDF2-SHA256(Web Crypto) 해시 저장
@@ -118,4 +124,4 @@ SPA 해시 라우팅 방식입니다.
   npm run db:migrate:prod
   npm run deploy:prod
   ```
-- **Last Updated**: 2026-07-08
+- **Last Updated**: 2026-07-16

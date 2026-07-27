@@ -35,12 +35,111 @@ admin.get('/languages', async (c) => {
 })
 admin.post('/languages', async (c) => {
   const b = await c.req.json<any>()
-  await c.env.DB.prepare(`INSERT INTO languages (code, name_en, name_native, sort_order) VALUES (?, ?, ?, ?)`)
+  await c.env.DB.prepare(`INSERT INTO languages (code, name_en, name_native, sort_order) VALUES (?, ?, ?, ?)`) 
     .bind(b.code, b.name_en, b.name_native || null, b.sort_order ?? 0).run()
   return c.json({ ok: true })
 })
 
+// ---- Member Types ----
+admin.get('/member-types', async (c) => {
+  const rows = await c.env.DB.prepare(`SELECT * FROM member_types ORDER BY sort_order, name`).all()
+  return c.json({ types: rows.results })
+})
+admin.post('/member-types', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '성도구분 필요' }, 400)
+  await c.env.DB.prepare(`INSERT INTO member_types (name, name_en, name_es, sort_order, is_active) VALUES (?, ?, ?, ?, ?)`) 
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1).run()
+  return c.json({ ok: true })
+})
+admin.put('/member-types/:id', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '성도구분 필요' }, 400)
+  await c.env.DB.prepare(`UPDATE member_types SET name=?, name_en=?, name_es=?, sort_order=?, is_active=? WHERE type_id=?`)
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1, c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+admin.delete('/member-types/:id', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM member_types WHERE type_id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
+// ---- Employment Types ----
+admin.get('/employment-types', async (c) => {
+  const rows = await c.env.DB.prepare(`SELECT * FROM employment_types ORDER BY sort_order, name`).all()
+  return c.json({ types: rows.results })
+})
+admin.post('/employment-types', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '근무형태 필요' }, 400)
+  await c.env.DB.prepare(`INSERT INTO employment_types (name, name_en, name_es, sort_order, is_active) VALUES (?, ?, ?, ?, ?)`) 
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1).run()
+  return c.json({ ok: true })
+})
+admin.put('/employment-types/:id', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '근무형태 필요' }, 400)
+  await c.env.DB.prepare(`UPDATE employment_types SET name=?, name_en=?, name_es=?, sort_order=?, is_active=? WHERE type_id=?`)
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1, c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+admin.delete('/employment-types/:id', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM employment_types WHERE type_id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
+// ---- Member Statuses ----
+admin.get('/member-statuses', async (c) => {
+  const rows = await c.env.DB.prepare(`SELECT * FROM member_statuses ORDER BY sort_order, name`).all()
+  return c.json({ statuses: rows.results })
+})
+admin.post('/member-statuses', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '상태 필요' }, 400)
+  await c.env.DB.prepare(`INSERT INTO member_statuses (name, name_en, name_es, sort_order, is_active) VALUES (?, ?, ?, ?, ?)`) 
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1).run()
+  return c.json({ ok: true })
+})
+admin.put('/member-statuses/:id', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '상태 필요' }, 400)
+  await c.env.DB.prepare(`UPDATE member_statuses SET name=?, name_en=?, name_es=?, sort_order=?, is_active=? WHERE status_id=?`)
+    .bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1, c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+admin.delete('/member-statuses/:id', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM member_statuses WHERE status_id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
+// ---- Absence Reasons ----
+admin.get('/absence-reasons', async (c) => {
+  const rows = await c.env.DB.prepare(`SELECT * FROM absence_reasons ORDER BY sort_order, name`).all()
+  return c.json({ reasons: rows.results })
+})
+admin.post('/absence-reasons', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '결석 사유 필요' }, 400)
+  await c.env.DB.prepare(
+    `INSERT INTO absence_reasons (name, name_en, name_es, sort_order, is_active) VALUES (?, ?, ?, ?, ?)`
+  ).bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1).run()
+  return c.json({ ok: true })
+})
+admin.put('/absence-reasons/:id', async (c) => {
+  const b = await c.req.json<any>()
+  if (!b.name) return c.json({ error: '결석 사유 필요' }, 400)
+  await c.env.DB.prepare(
+    `UPDATE absence_reasons SET name=?, name_en=?, name_es=?, sort_order=?, is_active=? WHERE reason_id=?`
+  ).bind(b.name, b.name_en || null, b.name_es || null, b.sort_order ?? 0, b.is_active ?? 1, c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+admin.delete('/absence-reasons/:id', async (c) => {
+  await c.env.DB.prepare(`DELETE FROM absence_reasons WHERE reason_id=?`).bind(c.req.param('id')).run()
+  return c.json({ ok: true })
+})
+
 // ---- Categories ----
+
 admin.get('/categories', async (c) => {
   const rows = await c.env.DB.prepare(`SELECT * FROM group_categories ORDER BY sort_order`).all()
   return c.json({ categories: rows.results })

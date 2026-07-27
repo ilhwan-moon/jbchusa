@@ -57,6 +57,18 @@ Pages.dashboard = async function (content) {
 /* ---------------- Address Book ---------------- */
 Pages.addressbook = async function (content) {
   const canEdit = hasPerm('member.edit');
+  const statusMeta = (App.state.memberMeta && App.state.memberMeta.memberStatuses) || [];
+  const statusList = statusMeta.length
+    ? statusMeta.map((item) => ({ value: item.name, label: localizeMetaName(item) }))
+    : [
+        { value: '활동', label: t('status.활동') },
+        { value: '휴면', label: t('status.휴면') },
+        { value: '이전', label: t('status.이전') },
+      ];
+  const statusOptions = statusList
+    .map((opt) => `<option value="${esc(opt.value)}">${esc(opt.label)}</option>`)
+    .join('');
+
   content.innerHTML = `
     <div class="flex items-center justify-between mb-4">
       <div><h2 class="text-xl font-bold text-slate-800">${t('ab.title')}</h2><p class="text-sm text-slate-500">${t('ab.desc')}</p></div>
@@ -71,7 +83,7 @@ Pages.addressbook = async function (content) {
       <div class="flex gap-2">
         <div class="relative flex-1"><i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
           <input id="ab-search" placeholder="${t('ab.search_ph')}" class="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg" /></div>
-        <select id="ab-status" class="px-3 py-2.5 border border-slate-200 rounded-lg text-sm"><option value="">${t('ab.all_status')}</option><option value="활동">${t('status.활동')}</option><option value="휴면">${t('status.휴면')}</option><option value="이전">${t('status.이전')}</option></select>
+        <select id="ab-status" class="px-3 py-2.5 border border-slate-200 rounded-lg text-sm"><option value="">${t('ab.all_status')}</option>${statusOptions}</select>
       </div>
     </div>
     <div id="ab-list">${loadingHtml('')}</div>`;
@@ -86,8 +98,7 @@ Pages.addressbook = async function (content) {
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${data.members.map(abCard).join('')}</div>`;
   }
   function abCard(m) {
-    const englishName = `${m.first_name} ${m.last_name}`.trim();
-    const name = m.korean_name ? `${m.korean_name} (${englishName})` : englishName;
+    const name = nativeName(m);
     return `<a href="#/members/${m.member_id}" class="card p-3 flex items-center gap-3 hover:border-brand-300 hover:shadow-sm transition">
       ${avatar(m.photo_url, m.first_name, m.last_name, 'w-11 h-11')}
       <div class="flex-1 min-w-0">
@@ -346,7 +357,7 @@ async function householdDetail(content, id) {
   const head = data.head_member || null;
   const headContacts = data.head_contacts || [];
   const headAddress = data.head_address || {};
-  const headName = head ? (head.korean_name || `${head.first_name} ${head.last_name}`) : '-';
+  const headName = head ? nativeName(head) : '-';
   const fullAddr = [headAddress.address_line1, headAddress.address_line2, headAddress.city, headAddress.state, headAddress.zip_code].filter(Boolean).join(', ');
   const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
   const roleLabel = (rc) => t('hhrole.' + rc) || t('hhrole.member');
@@ -384,7 +395,7 @@ async function householdDetail(content, id) {
         <div class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100">
           <a href="#/members/${m.member_id}" class="flex items-center gap-3 flex-1 min-w-0">
             ${avatar(m.photo_url, m.first_name, m.last_name, 'w-10 h-10')}
-            <div class="min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(m.korean_name||m.first_name+' '+m.last_name)} ${m.title?`<span class="text-xs text-slate-400">${esc(m.title)}</span>`:''}
+            <div class="min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(nativeName(m))} ${m.title?`<span class="text-xs text-slate-400">${esc(m.title)}</span>`:''}
               ${isHead?`<span class="ml-2 badge bg-brand-50 text-brand-700">${t('hh.head_badge')}</span>`:''}</div>
               <div class="text-xs text-slate-400">${roleLabel(m.household_role)}${m.birth_date?` · ${esc(m.birth_date)}`:''}</div></div>
           </a>
@@ -485,7 +496,7 @@ async function editHousehold(id) {
 
 async function addMemberToHousehold(hhId) {
   const { data } = await api.get('/members', { params: {} });
-  const opts = data.members.map((m)=>`<option value="${m.member_id}">${esc(m.korean_name||m.first_name+' '+m.last_name)}</option>`).join('');
+  const opts = data.members.map((m)=>`<option value="${m.member_id}">${esc(nativeName(m))}</option>`).join('');
   const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${t('hh.add_member')}</h3>
     <form id="hm-form" class="space-y-3">
       <select name="member_id" class="w-full px-3 py-2.5 border rounded-lg">${opts}</select>
@@ -510,7 +521,18 @@ async function removeFromHousehold(hhId, memberId) {
 /* ---------------- Admin ---------------- */
 Pages.admin = async function (content, tab) {
   if (!isAdmin()) { content.innerHTML = `<div class="card p-12 text-center text-slate-400"><i class="fas fa-lock text-2xl mb-2"></i><p>${t('common.no_permission')}</p></div>`; return; }
-  const tabs = [['users',t('admin.tab.users'),'fa-users-gear'],['positions',t('admin.tab.positions'),'fa-id-badge'],['languages',t('admin.tab.languages'),'fa-language'],['orgs',t('admin.tab.orgs'),'fa-sitemap'],['calendar',t('admin.tab.calendar'),'fa-calendar-days'],['email',t('admin.tab.email'),'fa-envelope']];
+  const tabs = [
+    ['users',t('admin.tab.users'),'fa-users-gear'],
+    ['positions',t('admin.tab.positions'),'fa-id-badge'],
+    ['member-types',t('admin.tab.member_types'),'fa-tags'],
+    ['employment-types',t('admin.tab.employment_types'),'fa-briefcase'],
+    ['member-statuses',t('admin.tab.member_statuses'),'fa-heart-pulse'],
+    ['absence-reasons',t('admin.tab.absence_reasons'),'fa-person-circle-minus'],
+    ['languages',t('admin.tab.languages'),'fa-language'],
+    ['orgs',t('admin.tab.orgs'),'fa-sitemap'],
+    ['calendar',t('admin.tab.calendar'),'fa-calendar-days'],
+    ['email',t('admin.tab.email'),'fa-envelope']
+  ];
   content.innerHTML = `
     <h2 class="text-xl font-bold text-slate-800 mb-4">${t('admin.title')}</h2>
     <div class="flex gap-2 mb-4 overflow-x-auto">${tabs.map(([t,l,i])=>`
@@ -519,6 +541,10 @@ Pages.admin = async function (content, tab) {
   const body = el('admin-body');
   if (tab === 'users') return adminUsers(body);
   if (tab === 'positions') return adminPositions(body);
+  if (tab === 'member-types') return adminMemberTypes(body);
+  if (tab === 'employment-types') return adminEmploymentTypes(body);
+  if (tab === 'member-statuses') return adminMemberStatuses(body);
+  if (tab === 'absence-reasons') return adminAbsenceReasons(body);
   if (tab === 'languages') return adminLanguages(body);
   if (tab === 'orgs') return adminOrgs(body);
   if (tab === 'calendar') return adminCalendar(body);
@@ -668,6 +694,252 @@ async function editPosition(positionId) {
   });
 }
 async function delPosition(id) { if (!confirm(t('admin.del_confirm'))) return; await api.delete(`/admin/positions/${id}`); toast(t('admin.deleted'),'success'); router(); }
+
+function metaListHtml(items, idKey, editFn, deleteFn) {
+  if (!items || !items.length) {
+    return `<div class="text-sm text-slate-400">${t('admin.meta_empty')}</div>`;
+  }
+  return `<div class="flex flex-wrap gap-2">${items.map((item)=>{
+    const label = localizeMetaName(item) || item.name;
+    const extras = [item.name_en, item.name_es].filter(Boolean).join(' / ');
+    return `
+    <span class="badge bg-slate-100 text-slate-600 text-sm py-1.5">
+      ${esc(label)}${extras?` <span class="text-xs text-slate-400">(${esc(extras)})</span>`:''}
+      <span class="text-xs ${item.is_active? 'text-emerald-600':'text-amber-600'} ml-1">${item.is_active? t('admin.meta_active'): t('admin.meta_inactive')}</span>
+      <button onclick="${editFn}(${item[idKey]})" class="ml-1 text-slate-300 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen"></i></button>
+      <button onclick="${deleteFn}(${item[idKey]})" class="ml-1 text-slate-300 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-times"></i></button>
+    </span>`;
+  }).join('')}</div>`;
+}
+
+function openMetaForm({ title, nameLabel, item, successKey, onSubmit }) {
+  const safeItem = item || {};
+  const box = h(`<div class="p-6"><h3 class="text-lg font-bold mb-4">${title}</h3>
+    <form id="meta-form" class="space-y-3">
+      <div><label class="block text-xs font-semibold text-slate-600 mb-1">${nameLabel}</label>
+        <input name="name" required value="${esc(safeItem.name||'')}" class="w-full px-3 py-2.5 border rounded-lg" />
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.meta_name_en')}</label>
+          <input name="name_en" value="${esc(safeItem.name_en||'')}" class="w-full px-3 py-2.5 border rounded-lg" />
+        </div>
+        <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.meta_name_es')}</label>
+          <input name="name_es" value="${esc(safeItem.name_es||'')}" class="w-full px-3 py-2.5 border rounded-lg" />
+        </div>
+      </div>
+      <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('admin.meta_sort_order')}</label>
+        <input name="sort_order" type="number" value="${safeItem.sort_order ?? 0}" class="w-full px-3 py-2.5 border rounded-lg" />
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="is_active" ${safeItem.is_active === 0 ? '' : 'checked'} /> ${t('admin.meta_active_label')}</label>
+      <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
+    </form></div>`);
+  openModal(box);
+  box.querySelector('#meta-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = {
+      name: fd.get('name'),
+      name_en: fd.get('name_en') || null,
+      name_es: fd.get('name_es') || null,
+      sort_order: fd.get('sort_order') ? parseInt(fd.get('sort_order'), 10) : 0,
+      is_active: fd.get('is_active') ? 1 : 0,
+    };
+    try {
+      await onSubmit(payload);
+      closeModal();
+      toast(t(successKey || 'common.saved'), 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
+async function adminMemberTypes(body) {
+  const { data } = await api.get('/admin/member-types');
+  window.__memberTypesCache = data.types || [];
+  body.innerHTML = `
+    <div class="flex justify-end mb-3"><button onclick="addMemberType()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_member_type')}</button></div>
+    <div class="card p-4">${metaListHtml(window.__memberTypesCache, 'type_id', 'editMemberType', 'delMemberType')}</div>`;
+}
+
+function addMemberType() {
+  openMetaForm({
+    title: t('admin.add_member_type'),
+    nameLabel: t('admin.member_type_name'),
+    item: { sort_order: 0, is_active: 1 },
+    successKey: 'admin.added',
+    onSubmit: (payload) => api.post('/admin/member-types', payload),
+  });
+}
+
+function editMemberType(typeId) {
+  const types = window.__memberTypesCache || [];
+  const item = types.find((row) => String(row.type_id) === String(typeId));
+  if (!item) return;
+  openMetaForm({
+    title: t('admin.edit_member_type'),
+    nameLabel: t('admin.member_type_name'),
+    item,
+    successKey: 'common.saved',
+    onSubmit: (payload) => api.put(`/admin/member-types/${typeId}`, payload),
+  });
+}
+
+async function delMemberType(typeId) {
+  if (!confirm(t('admin.del_confirm'))) return;
+  await api.delete(`/admin/member-types/${typeId}`);
+  toast(t('admin.deleted'), 'success');
+  router();
+}
+
+async function adminEmploymentTypes(body) {
+  const { data } = await api.get('/admin/employment-types');
+  window.__employmentTypesCache = data.types || [];
+  body.innerHTML = `
+    <div class="flex justify-end mb-3"><button onclick="addEmploymentType()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_employment_type')}</button></div>
+    <div class="card p-4">${metaListHtml(window.__employmentTypesCache, 'type_id', 'editEmploymentType', 'delEmploymentType')}</div>`;
+}
+
+function addEmploymentType() {
+  openMetaForm({
+    title: t('admin.add_employment_type'),
+    nameLabel: t('admin.employment_type_name'),
+    item: { sort_order: 0, is_active: 1 },
+    successKey: 'admin.added',
+    onSubmit: (payload) => api.post('/admin/employment-types', payload),
+  });
+}
+
+function editEmploymentType(typeId) {
+  const types = window.__employmentTypesCache || [];
+  const item = types.find((row) => String(row.type_id) === String(typeId));
+  if (!item) return;
+  openMetaForm({
+    title: t('admin.edit_employment_type'),
+    nameLabel: t('admin.employment_type_name'),
+    item,
+    successKey: 'common.saved',
+    onSubmit: (payload) => api.put(`/admin/employment-types/${typeId}`, payload),
+  });
+}
+
+async function delEmploymentType(typeId) {
+  if (!confirm(t('admin.del_confirm'))) return;
+  await api.delete(`/admin/employment-types/${typeId}`);
+  toast(t('admin.deleted'), 'success');
+  router();
+}
+
+async function adminMemberStatuses(body) {
+  const { data } = await api.get('/admin/member-statuses');
+  window.__memberStatusesCache = data.statuses || [];
+  body.innerHTML = `
+    <div class="flex justify-end mb-3"><button onclick="addMemberStatus()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_member_status')}</button></div>
+    <div class="card p-4">${metaListHtml(window.__memberStatusesCache, 'status_id', 'editMemberStatus', 'delMemberStatus')}</div>`;
+}
+
+function addMemberStatus() {
+  openMetaForm({
+    title: t('admin.add_member_status'),
+    nameLabel: t('admin.member_status_name'),
+    item: { sort_order: 0, is_active: 1 },
+    successKey: 'admin.added',
+    onSubmit: (payload) => api.post('/admin/member-statuses', payload),
+  });
+}
+
+function editMemberStatus(statusId) {
+  const statuses = window.__memberStatusesCache || [];
+  const item = statuses.find((row) => String(row.status_id) === String(statusId));
+  if (!item) return;
+  openMetaForm({
+    title: t('admin.edit_member_status'),
+    nameLabel: t('admin.member_status_name'),
+    item,
+    successKey: 'common.saved',
+    onSubmit: (payload) => api.put(`/admin/member-statuses/${statusId}`, payload),
+  });
+}
+
+async function delMemberStatus(statusId) {
+  if (!confirm(t('admin.del_confirm'))) return;
+  await api.delete(`/admin/member-statuses/${statusId}`);
+  toast(t('admin.deleted'), 'success');
+  router();
+}
+
+async function adminAbsenceReasons(body) {
+  const { data } = await api.get('/admin/absence-reasons');
+  window.__absenceReasonsCache = data.reasons || [];
+  const reasons = window.__absenceReasonsCache;
+  const reasonRows = reasons.map((item) => `
+    <tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="p-3"><span class="font-medium text-slate-800">${esc(item.name || '')}</span></td>
+      <td class="p-3 text-slate-500">${esc(item.name_en || '-')}</td>
+      <td class="p-3 text-slate-500">${esc(item.name_es || '-')}</td>
+      <td class="p-3 text-center"><span class="text-xs ${item.sort_order != null ? 'text-slate-500' : 'text-slate-300'}">${item.sort_order ?? 0}</span></td>
+      <td class="p-3 text-center">
+        <span class="badge text-xs ${item.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}">${item.is_active ? t('admin.meta_active') : t('admin.meta_inactive')}</span>
+      </td>
+      <td class="p-3 text-center">
+        <div class="flex items-center justify-center gap-2">
+          <button onclick="editAbsenceReason(${item.reason_id})" class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick="delAbsenceReason(${item.reason_id})" class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>
+        </div>
+      </td>
+    </tr>`).join('');
+  body.innerHTML = `
+    <div class="flex items-center justify-between mb-3">
+      <p class="text-sm text-slate-500">${t('admin.absence_reason_desc')}</p>
+      <button onclick="addAbsenceReason()" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-semibold"><i class="fas fa-plus mr-1"></i>${t('admin.add_absence_reason')}</button>
+    </div>
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs">
+          <tr>
+            <th class="text-left p-3">${t('admin.absence_reason_ko')}</th>
+            <th class="text-left p-3">${t('admin.absence_reason_en')}</th>
+            <th class="text-left p-3">${t('admin.absence_reason_es')}</th>
+            <th class="text-center p-3">${t('admin.meta_sort_order')}</th>
+            <th class="text-center p-3">${t('admin.th.status')}</th>
+            <th class="text-center p-3">${t('admin.th.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>${reasonRows || `<tr><td colspan="6" class="text-center p-6 text-slate-400">${t('admin.meta_empty')}</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+
+function addAbsenceReason() {
+  openMetaForm({
+    title: t('admin.add_absence_reason'),
+    nameLabel: t('admin.absence_reason_name'),
+    item: { sort_order: 0, is_active: 1 },
+    successKey: 'admin.added',
+    onSubmit: (payload) => api.post('/admin/absence-reasons', payload),
+  });
+}
+
+function editAbsenceReason(reasonId) {
+  const items = window.__absenceReasonsCache || [];
+  const item = items.find((row) => String(row.reason_id) === String(reasonId));
+  if (!item) return;
+  openMetaForm({
+    title: t('admin.edit_absence_reason'),
+    nameLabel: t('admin.absence_reason_name'),
+    item,
+    successKey: 'common.saved',
+    onSubmit: (payload) => api.put(`/admin/absence-reasons/${reasonId}`, payload),
+  });
+}
+
+async function delAbsenceReason(reasonId) {
+  if (!confirm(t('admin.del_confirm'))) return;
+  await api.delete(`/admin/absence-reasons/${reasonId}`);
+  toast(t('admin.deleted'), 'success');
+  router();
+}
 
 async function adminLanguages(body) {
   const { data } = await api.get('/admin/languages');

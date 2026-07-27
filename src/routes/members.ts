@@ -3,7 +3,12 @@ import type { Bindings, SessionUser } from '../lib/types'
 
 const members = new Hono<{ Bindings: Bindings; Variables: { user: SessionUser | null } }>()
 
-const getMemberName = (m: any) => (m?.korean_name || `${m?.first_name || ''} ${m?.last_name || ''}`.trim() || '');
+const getMemberName = (m: any) => {
+  if (!m) return ''
+  const preferred = (m?.preferred_name || '').trim()
+  if (preferred) return preferred
+  return `${m?.first_name || ''} ${m?.last_name || ''}`.trim() || ''
+}
 
 const fetchMemberBasic = async (c: any, id: number | string) => {
   return await c.env.DB.prepare(
@@ -249,8 +254,8 @@ members.post('/bulk', async (c) => {
         normGender(row.gender),
         clean(row.title),
         clean(row.birth_date),
-        clean(row.member_type) || '성도',
-        clean(row.employment_type) || '봉사자',
+        clean(row.member_type) || null,
+        clean(row.employment_type) || null,
         clean(row.status) || '활동',
         clean(row.note),
         hasAddress ? 1 : 0,
@@ -308,6 +313,9 @@ members.get('/:id', async (c) => {
      JOIN members rm ON mr.related_id = rm.member_id
      WHERE mr.member_id = ?`
   ).bind(id).all()
+  const prayers = await c.env.DB.prepare(
+    `SELECT * FROM member_prayer_requests WHERE member_id = ? ORDER BY prayer_date DESC, prayer_id DESC`
+  ).bind(id).all()
 
   // resolved address (own vs household)
   const useOwn = m.use_own_address === 1
@@ -326,6 +334,7 @@ members.get('/:id', async (c) => {
     languages: languages.results,
     assignments: assignments.results,
     relationships: relationships.results,
+    prayers: prayers.results,
   })
 })
 
@@ -341,7 +350,7 @@ members.post('/', async (c) => {
   ).bind(
     b.household_id || null, b.household_role || null, b.first_name, b.last_name, b.korean_name || null,
     b.preferred_name || null, b.gender || null, b.title || null, b.birth_date || null,
-    b.member_type || '성도', b.employment_type || '봉사자', b.status || '활동', b.photo_url || null, b.note || null,
+    b.member_type || null, b.employment_type || null, b.status || '활동', b.photo_url || null, b.note || null,
     b.use_own_address ? 1 : 0, b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null
   ).run()
   const memberId = res.meta.last_row_id
@@ -366,7 +375,7 @@ members.put('/:id', async (c) => {
      WHERE member_id=?`
   ).bind(
     b.first_name, b.last_name, b.korean_name || null, b.preferred_name || null, b.gender || null, b.title || null,
-    b.birth_date || null, b.member_type || '성도', b.employment_type || '봉사자', b.status || '활동', b.note || null,
+    b.birth_date || null, b.member_type || null, b.employment_type || null, b.status || '활동', b.note || null,
     b.household_id || null, b.household_role || null, b.use_own_address ? 1 : 0,
     b.address_line1 || null, b.address_line2 || null, b.city || null, b.state || null, b.zip_code || null,
     id
@@ -441,6 +450,36 @@ members.post('/:id/relationships', async (c) => {
 })
 members.delete('/relationships/:relId', async (c) => {
   await c.env.DB.prepare(`DELETE FROM member_relationships WHERE relationship_id=?`).bind(c.req.param('relId')).run()
+  return c.json({ ok: true })
+})
+
+// ---- Prayer Requests ----
+members.post('/:id/prayers', async (c) => {
+  const id = c.req.param('id')
+  const b = await c.req.json<any>()
+  if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
+  const recorder = (c.get('user') as SessionUser | null)?.user_id || null
+  const res = await c.env.DB.prepare(
+    `INSERT INTO member_prayer_requests (member_id, prayer_date, content, created_by) VALUES (?, ?, ?, ?)`
+  ).bind(id, b.prayer_date, b.content, recorder).run()
+  return c.json({ prayer_id: res.meta.last_row_id })
+})
+
+members.put('/:id/prayers/:prayerId', async (c) => {
+  const id = c.req.param('id')
+  const prayerId = c.req.param('prayerId')
+  const b = await c.req.json<any>()
+  if (!b.prayer_date || !b.content) return c.json({ error: '날짜와 내용이 필요합니다.' }, 400)
+  await c.env.DB.prepare(
+    `UPDATE member_prayer_requests SET prayer_date=?, content=?, updated_at=datetime('now') WHERE prayer_id=? AND member_id=?`
+  ).bind(b.prayer_date, b.content, prayerId, id).run()
+  return c.json({ ok: true })
+})
+
+members.delete('/:id/prayers/:prayerId', async (c) => {
+  const id = c.req.param('id')
+  const prayerId = c.req.param('prayerId')
+  await c.env.DB.prepare(`DELETE FROM member_prayer_requests WHERE prayer_id=? AND member_id=?`).bind(prayerId, id).run()
   return c.json({ ok: true })
 })
 

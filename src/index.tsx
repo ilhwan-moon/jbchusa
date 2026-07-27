@@ -8,6 +8,7 @@ import authRoutes from './routes/auth'
 import orgRoutes from './routes/orgs'
 import memberRoutes from './routes/members'
 import attendanceRoutes from './routes/attendance'
+import publicRoutes from './routes/public'
 import householdRoutes from './routes/households'
 import adminRoutes from './routes/admin'
 
@@ -20,6 +21,7 @@ app.use('/api/*', loadUser)
 
 // Public auth endpoints
 app.route('/api/auth', authRoutes)
+app.route('/api/public', publicRoutes)
 
 // Protected API
 const api = new Hono<{ Bindings: Bindings; Variables: { user: SessionUser | null } }>()

@@ -27,3 +27,24 @@ input:focus, select:focus, textarea:focus { outline: none; }
 
 /* avatar gradient placeholder */
 .avatar-ph { background: linear-gradient(135deg,#1e6fd9,#0a2c5c); color:#fff; }
+
+/* Rich text editor (contenteditable) */
+[contenteditable][placeholder]:empty:before {
+  content: attr(placeholder);
+  color: #94a3b8;
+  pointer-events: none;
+  display: block;
+}
+[contenteditable]:focus { outline: none; border-color: #1e6fd9 !important; }
+
+/* Prose (rich content) rendering */
+.prose p { margin: 0 0 0.4em; }
+.prose ul { list-style: disc; padding-left: 1.4em; margin: 0.3em 0; }
+.prose ol { list-style: decimal; padding-left: 1.4em; margin: 0.3em 0; }
+.prose li { margin: 0.1em 0; }
+.prose b, .prose strong { font-weight: 700; }
+.prose i, .prose em { font-style: italic; }
+.prose u { text-decoration: underline; }
+.prose h3 { font-size: 1em; font-weight: 700; margin: 0.5em 0 0.2em; color: #1e293b; }
+.prose h4 { font-size: 0.92em; font-weight: 600; margin: 0.5em 0 0.2em; color: #334155; }
+.prose p:last-child { margin-bottom: 0; }
