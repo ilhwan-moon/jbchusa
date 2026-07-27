@@ -56,31 +56,48 @@ Pages.memberDetail = async function (content, memberId) {
   const meetingPrayers = meetingNotes.filter((n) => n.note_type === 'prayer');
   const meetingTestimonies = meetingNotes.filter((n) => n.note_type === 'testimony');
 
-  // Build standalone prayer HTML
-  const prayerHtml = prayers.map((p) => {
+  // Merge standalone prayers + meeting-linked prayers, sorted by date desc
+  const allPrayerItems = [
+    ...prayers.map((p) => ({ _type: 'standalone', _date: p.prayer_date || '', ...p })),
+    ...meetingPrayers.map((n) => ({ _type: 'meeting', _date: (n.meeting_date || '').slice(0, 10), ...n })),
+  ].sort((a, b) => (b._date > a._date ? 1 : b._date < a._date ? -1 : 0));
+
+  // Build unified prayer HTML (consistent card style for both types)
+  const allPrayerHtml = allPrayerItems.map((item) => {
+    if (item._type === 'meeting') {
+      return buildMeetingNoteItem(item, memberId, canEdit);
+    }
+    // Standalone prayer — same card layout as meeting-linked
+    const p = item;
+    const pId = `pr-${p.prayer_id}`;
     const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
     const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
     const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
     return `
-    <div class="p-3 rounded-lg border border-slate-100">
-      <div class="flex items-center justify-between mb-1">
-        <div class="text-xs font-medium text-slate-500">${esc(p.prayer_date || '')}</div>
-        ${canEdit?`<div class="flex items-center gap-2">
-          <button onclick='editPrayerRequest(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
-          <button onclick='deletePrayerRequest(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>
-        </div>`:''}
+    <div class="p-3 rounded-lg border border-slate-100" id="prayer-item-${p.prayer_id}">
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="togglePrayerContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
+            <i class="fas fa-chevron-down" id="prayer-chevron-${pId}"></i>
+          </button>
+          ${canEdit ? `<button onclick='editPrayerRequest(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick='deletePrayerRequest(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
+        </div>
       </div>
-      <div class="text-sm text-slate-700 prose prose-sm max-w-none">${contentHtml}</div>
+      <div id="prayer-content-${pId}" class="hidden">
+        <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
+      </div>
     </div>
-  `}).join('');
-
-  // Build meeting-linked prayer HTML
-  const meetingPrayerHtml = meetingPrayers.map((n) => buildMeetingNoteItem(n, memberId, canEdit)).join('');
+  `;
+  }).join('');
 
   // Build meeting-linked testimony HTML
   const meetingTestimonyHtml = meetingTestimonies.map((n) => buildMeetingNoteItem(n, memberId, canEdit)).join('');
 
-  const hasPrayers = prayers.length > 0 || meetingPrayers.length > 0;
+  const hasPrayers = allPrayerItems.length > 0;
   const hasTestimonies = meetingTestimonies.length > 0;
 
   content.innerHTML = `
@@ -140,8 +157,7 @@ Pages.memberDetail = async function (content, memberId) {
             ${canEdit?`<button onclick="addPrayerRequest(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_prayer')}</button>`:''}
           </div>
           <div class="space-y-3">
-            ${meetingPrayerHtml}
-            ${prayerHtml}
+            ${allPrayerHtml}
             ${!hasPrayers ? `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>` : ''}
           </div>
         </div>
@@ -455,6 +471,18 @@ function buildMeetingNoteItem(n, memberId, canEdit) {
 function toggleMeetingNoteContent(noteId) {
   const contentEl = document.getElementById(`meeting-note-content-${noteId}`);
   const chevron = document.getElementById(`meeting-note-chevron-${noteId}`);
+  if (contentEl) {
+    const isHidden = contentEl.classList.contains('hidden');
+    contentEl.classList.toggle('hidden', !isHidden);
+    if (chevron) {
+      chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    }
+  }
+}
+
+function togglePrayerContent(pId) {
+  const contentEl = document.getElementById(`prayer-content-${pId}`);
+  const chevron = document.getElementById(`prayer-chevron-${pId}`);
   if (contentEl) {
     const isHidden = contentEl.classList.contains('hidden');
     contentEl.classList.toggle('hidden', !isHidden);
