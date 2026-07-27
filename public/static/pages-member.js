@@ -423,7 +423,123 @@ async function editMember(memberId) {
 
 /* ---- Meeting-linked note item renderer (prayer / testimony) ---- */
 function buildMeetingNoteItem(n, memberId, canEdit) {
-  const noteId = n.note_id;\n  const meetingDate = (n.meeting_date || '').slice(0, 10);\n  const meetingTitle = n.meeting_title || '';\n  const isHtml = /<[a-z][\\s\\S]*>/i.test(n.content || '');\n  const contentHtml = isHtml ? (n.content || '') : `<p class=\"whitespace-pre-line\">${esc(n.content || '')}</p>`;\n  const nJson = JSON.stringify(n).replace(/'/g, '&#39;');\n  return `\n    <div class=\"p-3 rounded-lg border border-slate-100 bg-slate-50/50\" id=\"meeting-note-item-${noteId}\">\n      <div class=\"flex items-start justify-between mb-2\">\n        <div class=\"flex items-center gap-2 flex-wrap\">\n          <span class=\"text-xs font-medium text-brand-600\"><i class=\"fas fa-calendar-alt mr-1\"></i>${esc(meetingDate)}</span>\n          <span class=\"text-xs text-slate-500 font-medium\">${esc(meetingTitle)}</span>\n          <span class=\"badge bg-purple-50 text-purple-500 text-xs\">${t('member.meeting_linked')}</span>\n        </div>\n        <div class=\"flex items-center gap-2 shrink-0\">\n          <button onclick=\"toggleMeetingNoteContent(${noteId})\" class=\"text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200\">\n            <i class=\"fas fa-chevron-down\" id=\"meeting-note-chevron-${noteId}\"></i>\n          </button>\n          ${canEdit ? `<button onclick=\"editMeetingLinkedNote(${memberId}, ${nJson})\" class=\"text-slate-400 hover:text-brand-600\" title=\"${t('common.edit')}\"><i class=\"fas fa-pen text-xs\"></i></button>\n          <button onclick=\"deleteMeetingLinkedNote(${memberId}, ${noteId})\" class=\"text-slate-400 hover:text-red-500\" title=\"${t('common.delete')}\"><i class=\"fas fa-trash text-xs\"></i></button>` : ''}\n        </div>\n      </div>\n      <div id=\"meeting-note-content-${noteId}\" class=\"hidden\">\n        <div class=\"text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100\">${contentHtml}</div>\n      </div>\n    </div>\n  `;\n}\n\nfunction toggleMeetingNoteContent(noteId) {\n  const contentEl = document.getElementById(`meeting-note-content-${noteId}`);\n  const chevron = document.getElementById(`meeting-note-chevron-${noteId}`);\n  if (contentEl) {\n    const isHidden = contentEl.classList.contains('hidden');\n    contentEl.classList.toggle('hidden', !isHidden);\n    if (chevron) {\n      chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';\n    }\n  }\n}\n\nasync function deleteMeetingLinkedNote(memberId, noteId) {\n  const confirmMsg = t('att.note_delete_confirm');\n  if (!confirm(confirmMsg)) return;\n  try {\n    await api.delete(`/members/${memberId}/meeting-notes/${noteId}`);\n    toast(t('common.deleted'), 'success');\n    router();\n  } catch (err) {\n    toast(err.response?.data?.error || t('common.failed'), 'error');\n  }\n}\n\nasync function editMeetingLinkedNote(memberId, note) {\n  // Find the meeting ID from the note and navigate to it, or open inline edit modal\n  const n = note;\n  const meetingId = n.meeting_id;\n  const box = h(`<div class=\"p-6 max-h-[85vh] overflow-y-auto\">\n    <h3 class=\"text-lg font-bold mb-1\">${t('att.edit_note')}</h3>\n    <p class=\"text-xs text-slate-400 mb-4\"><i class=\"fas fa-calendar-alt mr-1\"></i>${esc((n.meeting_date||'').slice(0,10))} · ${esc(n.meeting_title||'')}</p>\n    <form id=\"meeting-note-edit-form\" class=\"space-y-3\">\n      <div>\n        <label class=\"block text-xs font-semibold text-slate-600 mb-1\">${t('att.note_content')}</label>\n        <div id=\"mne-toolbar\" class=\"flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600\">\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold\" data-cmd=\"bold\"><b>B</b></button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic\" data-cmd=\"italic\"><i>I</i></button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline\" data-cmd=\"underline\"><u>U</u></button>\n          <span class=\"border-l border-slate-300 mx-1\"></span>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs\" data-cmd=\"insertUnorderedList\">&#8226; List</button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs\" data-cmd=\"insertOrderedList\">1. List</button>\n        </div>\n        <div id=\"mne-editor\" contenteditable=\"true\"\n          class=\"min-h-[140px] max-h-[340px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700\"\n          placeholder=\"${esc(t('att.note_content_ph'))}\"></div>\n        <input type=\"hidden\" name=\"content\" />\n      </div>\n      <div class=\"flex gap-2 pt-2\">\n        <button type=\"button\" onclick=\"closeModal()\" class=\"flex-1 py-2.5 border rounded-lg text-slate-600\">${t('common.cancel')}</button>\n        <button type=\"submit\" class=\"flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold\">${t('common.save')}</button>\n      </div>\n    </form>\n  </div>`);\n  openModal(box, { size: 'max-w-xl' });\n  const editor = box.querySelector('#mne-editor');\n  const contentInput = box.querySelector('input[name=\"content\"]');\n  if (n.content) {\n    if (/<[a-z][\\s\\S]*>/i.test(n.content)) {\n      editor.innerHTML = n.content;\n    } else {\n      editor.innerHTML = n.content.split('\\n').map((l) => `<p>${esc(l) || '<br>'}</p>`).join('');\n    }\n  }\n  box.querySelectorAll('.mne-tool').forEach((btn) => {\n    btn.addEventListener('mousedown', (e) => {\n      e.preventDefault();\n      document.execCommand(btn.dataset.cmd, false, null);\n      editor.focus();\n    });\n  });\n  box.querySelector('#meeting-note-edit-form').addEventListener('submit', async (e) => {\n    e.preventDefault();\n    const htmlContent = editor.innerHTML.trim();\n    if (!htmlContent || htmlContent === '<br>') { toast(t('att.note_content_ph'), 'error'); return; }\n    contentInput.value = htmlContent;\n    const payload = { note_type: n.note_type, content: htmlContent, member_id: memberId };\n    try {\n      await api.put(`/attendance/meetings/${meetingId}/notes/${n.note_id}`, payload);\n      closeModal();\n      toast(t('common.saved'), 'success');\n      router();\n    } catch (err) {\n      toast(err.response?.data?.error || t('common.failed'), 'error');\n    }\n  });\n}\n\n/* ---- prayer requests ---- */\nasync function addPrayerRequest(memberId) {
+  const noteId = n.note_id;
+  const meetingDate = (n.meeting_date || '').slice(0, 10);
+  const meetingTitle = n.meeting_title || '';
+  const isHtml = /<[a-z][\s\S]*>/i.test(n.content || '');
+  const contentHtml = isHtml ? (n.content || '') : `<p class="whitespace-pre-line">${esc(n.content || '')}</p>`;
+  const nJson = JSON.stringify(n).replace(/'/g, '&#39;');
+  return `
+    <div class="p-3 rounded-lg border border-slate-100 bg-slate-50/50" id="meeting-note-item-${noteId}">
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(meetingDate)}</span>
+          <span class="text-xs text-slate-500 font-medium">${esc(meetingTitle)}</span>
+          <span class="badge bg-purple-50 text-purple-500 text-xs">${t('member.meeting_linked')}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="toggleMeetingNoteContent(${noteId})" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
+            <i class="fas fa-chevron-down" id="meeting-note-chevron-${noteId}"></i>
+          </button>
+          ${canEdit ? `<button onclick="editMeetingLinkedNote(${memberId}, ${nJson})" class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+          <button onclick="deleteMeetingLinkedNote(${memberId}, ${noteId})" class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
+        </div>
+      </div>
+      <div id="meeting-note-content-${noteId}" class="hidden">
+        <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleMeetingNoteContent(noteId) {
+  const contentEl = document.getElementById(`meeting-note-content-${noteId}`);
+  const chevron = document.getElementById(`meeting-note-chevron-${noteId}`);
+  if (contentEl) {
+    const isHidden = contentEl.classList.contains('hidden');
+    contentEl.classList.toggle('hidden', !isHidden);
+    if (chevron) {
+      chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';
+    }
+  }
+}
+
+async function deleteMeetingLinkedNote(memberId, noteId) {
+  const confirmMsg = t('att.note_delete_confirm');
+  if (!confirm(confirmMsg)) return;
+  try {
+    await api.delete(`/members/${memberId}/meeting-notes/${noteId}`);
+    toast(t('common.deleted'), 'success');
+    router();
+  } catch (err) {
+    toast(err.response?.data?.error || t('common.failed'), 'error');
+  }
+}
+
+async function editMeetingLinkedNote(memberId, note) {
+  const n = note;
+  const meetingId = n.meeting_id;
+  const box = h(`<div class="p-6 max-h-[85vh] overflow-y-auto">
+    <h3 class="text-lg font-bold mb-1">${t('att.edit_note')}</h3>
+    <p class="text-xs text-slate-400 mb-4"><i class="fas fa-calendar-alt mr-1"></i>${esc((n.meeting_date||'').slice(0,10))} &middot; ${esc(n.meeting_title||'')}</p>
+    <form id="meeting-note-edit-form" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.note_content')}</label>
+        <div id="mne-toolbar" class="flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600">
+          <button type="button" class="mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold" data-cmd="bold"><b>B</b></button>
+          <button type="button" class="mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic" data-cmd="italic"><i>I</i></button>
+          <button type="button" class="mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline" data-cmd="underline"><u>U</u></button>
+          <span class="border-l border-slate-300 mx-1"></span>
+          <button type="button" class="mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertUnorderedList">&#8226; List</button>
+          <button type="button" class="mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs" data-cmd="insertOrderedList">1. List</button>
+        </div>
+        <div id="mne-editor" contenteditable="true"
+          class="min-h-[140px] max-h-[340px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700"
+          placeholder="${esc(t('att.note_content_ph'))}"></div>
+        <input type="hidden" name="content" />
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button>
+        <button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button>
+      </div>
+    </form>
+  </div>`);
+  openModal(box, { size: 'max-w-xl' });
+  const editor = box.querySelector('#mne-editor');
+  const contentInput = box.querySelector('input[name="content"]');
+  if (n.content) {
+    if (/<[a-z][\s\S]*>/i.test(n.content)) {
+      editor.innerHTML = n.content;
+    } else {
+      editor.innerHTML = n.content.split('\n').map((l) => `<p>${esc(l) || '<br>'}</p>`).join('');
+    }
+  }
+  box.querySelectorAll('.mne-tool').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.execCommand(btn.dataset.cmd, false, null);
+      editor.focus();
+    });
+  });
+  box.querySelector('#meeting-note-edit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const htmlContent = editor.innerHTML.trim();
+    if (!htmlContent || htmlContent === '<br>') { toast(t('att.note_content_ph'), 'error'); return; }
+    contentInput.value = htmlContent;
+    const payload = { note_type: n.note_type, content: htmlContent, member_id: memberId };
+    try {
+      await api.put(`/attendance/meetings/${meetingId}/notes/${n.note_id}`, payload);
+      closeModal();
+      toast(t('common.saved'), 'success');
+      router();
+    } catch (err) {
+      toast(err.response?.data?.error || t('common.failed'), 'error');
+    }
+  });
+}
+
+/* ---- prayer requests ---- */
+async function addPrayerRequest(memberId) {
   openPrayerRequestForm(memberId, null);
 }
 
