@@ -3,11 +3,15 @@
  * ============================================================ */
 Pages.memberDetail = async function (content, memberId) {
   content.innerHTML = loadingHtml();
-  const { data } = await api.get(`/members/${memberId}`);
+  const [{ data }, { data: mnData }] = await Promise.all([
+    api.get(`/members/${memberId}`),
+    api.get(`/members/${memberId}/meeting-notes`, { params: { type: 'prayer,testimony' } }).catch(() => ({ data: { notes: [] } })),
+  ]);
   const m = data.member;
   const addr = data.address;
   const name = nativeName(m);
   const canEdit = hasPerm('member.edit');
+  const meetingNotes = mnData.notes || [];
 
   const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
   const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
@@ -47,10 +51,14 @@ Pages.memberDetail = async function (content, memberId) {
 
   const langHtml = data.languages.map((l) => `<span class="badge bg-slate-100 text-slate-600">${esc(l.name_native||l.name_en)}${l.is_primary?' ★':''}</span>`).join(' ');
   const prayers = data.prayers || [];
+
+  // Separate meeting-linked notes by type
+  const meetingPrayers = meetingNotes.filter((n) => n.note_type === 'prayer');
+  const meetingTestimonies = meetingNotes.filter((n) => n.note_type === 'testimony');
+
+  // Build standalone prayer HTML
   const prayerHtml = prayers.map((p) => {
-    // Safely serialize prayer object for onclick
     const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
-    // Render content: if HTML tags detected, render as HTML; else as plain text
     const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
     const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
     return `
@@ -64,7 +72,16 @@ Pages.memberDetail = async function (content, memberId) {
       </div>
       <div class="text-sm text-slate-700 prose prose-sm max-w-none">${contentHtml}</div>
     </div>
-  `}).join('') || `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>`;
+  `}).join('');
+
+  // Build meeting-linked prayer HTML
+  const meetingPrayerHtml = meetingPrayers.map((n) => buildMeetingNoteItem(n, memberId, canEdit)).join('');
+
+  // Build meeting-linked testimony HTML
+  const meetingTestimonyHtml = meetingTestimonies.map((n) => buildMeetingNoteItem(n, memberId, canEdit)).join('');
+
+  const hasPrayers = prayers.length > 0 || meetingPrayers.length > 0;
+  const hasTestimonies = meetingTestimonies.length > 0;
 
   content.innerHTML = `
     <div class="mb-4"><a href="javascript:history.back()" class="text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-arrow-left mr-1"></i>${t('common.back')}</a></div>
@@ -122,7 +139,20 @@ Pages.memberDetail = async function (content, memberId) {
             <h3 class="font-bold text-slate-700"><i class="fas fa-hands-praying text-brand-500 mr-2"></i>${t('member.prayer_requests')}</h3>
             ${canEdit?`<button onclick="addPrayerRequest(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_prayer')}</button>`:''}
           </div>
-          <div class="space-y-3">${prayerHtml}</div>
+          <div class="space-y-3">
+            ${meetingPrayerHtml}
+            ${prayerHtml}
+            ${!hasPrayers ? `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>` : ''}
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-slate-700"><i class="fas fa-star text-amber-500 mr-2"></i>${t('member.testimonies')}</h3>
+          </div>
+          <div class="space-y-3">
+            ${meetingTestimonyHtml || `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>`}
+          </div>
         </div>
 
         ${m.note?`<div class="card p-5"><h3 class="font-bold text-slate-700 mb-2"><i class="fas fa-note-sticky text-brand-500 mr-2"></i>${t('member.note')}</h3><p class="text-sm text-slate-600 whitespace-pre-line">${esc(m.note)}</p></div>`:''}
@@ -391,8 +421,9 @@ async function editMember(memberId) {
   });
 }
 
-/* ---- prayer requests ---- */
-async function addPrayerRequest(memberId) {
+/* ---- Meeting-linked note item renderer (prayer / testimony) ---- */
+function buildMeetingNoteItem(n, memberId, canEdit) {
+  const noteId = n.note_id;\n  const meetingDate = (n.meeting_date || '').slice(0, 10);\n  const meetingTitle = n.meeting_title || '';\n  const isHtml = /<[a-z][\\s\\S]*>/i.test(n.content || '');\n  const contentHtml = isHtml ? (n.content || '') : `<p class=\"whitespace-pre-line\">${esc(n.content || '')}</p>`;\n  const nJson = JSON.stringify(n).replace(/'/g, '&#39;');\n  return `\n    <div class=\"p-3 rounded-lg border border-slate-100 bg-slate-50/50\" id=\"meeting-note-item-${noteId}\">\n      <div class=\"flex items-start justify-between mb-2\">\n        <div class=\"flex items-center gap-2 flex-wrap\">\n          <span class=\"text-xs font-medium text-brand-600\"><i class=\"fas fa-calendar-alt mr-1\"></i>${esc(meetingDate)}</span>\n          <span class=\"text-xs text-slate-500 font-medium\">${esc(meetingTitle)}</span>\n          <span class=\"badge bg-purple-50 text-purple-500 text-xs\">${t('member.meeting_linked')}</span>\n        </div>\n        <div class=\"flex items-center gap-2 shrink-0\">\n          <button onclick=\"toggleMeetingNoteContent(${noteId})\" class=\"text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200\">\n            <i class=\"fas fa-chevron-down\" id=\"meeting-note-chevron-${noteId}\"></i>\n          </button>\n          ${canEdit ? `<button onclick=\"editMeetingLinkedNote(${memberId}, ${nJson})\" class=\"text-slate-400 hover:text-brand-600\" title=\"${t('common.edit')}\"><i class=\"fas fa-pen text-xs\"></i></button>\n          <button onclick=\"deleteMeetingLinkedNote(${memberId}, ${noteId})\" class=\"text-slate-400 hover:text-red-500\" title=\"${t('common.delete')}\"><i class=\"fas fa-trash text-xs\"></i></button>` : ''}\n        </div>\n      </div>\n      <div id=\"meeting-note-content-${noteId}\" class=\"hidden\">\n        <div class=\"text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100\">${contentHtml}</div>\n      </div>\n    </div>\n  `;\n}\n\nfunction toggleMeetingNoteContent(noteId) {\n  const contentEl = document.getElementById(`meeting-note-content-${noteId}`);\n  const chevron = document.getElementById(`meeting-note-chevron-${noteId}`);\n  if (contentEl) {\n    const isHidden = contentEl.classList.contains('hidden');\n    contentEl.classList.toggle('hidden', !isHidden);\n    if (chevron) {\n      chevron.className = isHidden ? 'fas fa-chevron-up' : 'fas fa-chevron-down';\n    }\n  }\n}\n\nasync function deleteMeetingLinkedNote(memberId, noteId) {\n  const confirmMsg = t('att.note_delete_confirm');\n  if (!confirm(confirmMsg)) return;\n  try {\n    await api.delete(`/members/${memberId}/meeting-notes/${noteId}`);\n    toast(t('common.deleted'), 'success');\n    router();\n  } catch (err) {\n    toast(err.response?.data?.error || t('common.failed'), 'error');\n  }\n}\n\nasync function editMeetingLinkedNote(memberId, note) {\n  // Find the meeting ID from the note and navigate to it, or open inline edit modal\n  const n = note;\n  const meetingId = n.meeting_id;\n  const box = h(`<div class=\"p-6 max-h-[85vh] overflow-y-auto\">\n    <h3 class=\"text-lg font-bold mb-1\">${t('att.edit_note')}</h3>\n    <p class=\"text-xs text-slate-400 mb-4\"><i class=\"fas fa-calendar-alt mr-1\"></i>${esc((n.meeting_date||'').slice(0,10))} · ${esc(n.meeting_title||'')}</p>\n    <form id=\"meeting-note-edit-form\" class=\"space-y-3\">\n      <div>\n        <label class=\"block text-xs font-semibold text-slate-600 mb-1\">${t('att.note_content')}</label>\n        <div id=\"mne-toolbar\" class=\"flex flex-wrap gap-1 p-2 bg-slate-50 border border-slate-200 rounded-t-lg text-slate-600\">\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs font-bold\" data-cmd=\"bold\"><b>B</b></button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs italic\" data-cmd=\"italic\"><i>I</i></button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs underline\" data-cmd=\"underline\"><u>U</u></button>\n          <span class=\"border-l border-slate-300 mx-1\"></span>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs\" data-cmd=\"insertUnorderedList\">&#8226; List</button>\n          <button type=\"button\" class=\"mne-tool px-2 py-1 rounded hover:bg-slate-200 text-xs\" data-cmd=\"insertOrderedList\">1. List</button>\n        </div>\n        <div id=\"mne-editor\" contenteditable=\"true\"\n          class=\"min-h-[140px] max-h-[340px] overflow-y-auto w-full px-3 py-2.5 border border-t-0 border-slate-200 rounded-b-lg focus:outline-none focus:border-brand-400 text-sm text-slate-700\"\n          placeholder=\"${esc(t('att.note_content_ph'))}\"></div>\n        <input type=\"hidden\" name=\"content\" />\n      </div>\n      <div class=\"flex gap-2 pt-2\">\n        <button type=\"button\" onclick=\"closeModal()\" class=\"flex-1 py-2.5 border rounded-lg text-slate-600\">${t('common.cancel')}</button>\n        <button type=\"submit\" class=\"flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold\">${t('common.save')}</button>\n      </div>\n    </form>\n  </div>`);\n  openModal(box, { size: 'max-w-xl' });\n  const editor = box.querySelector('#mne-editor');\n  const contentInput = box.querySelector('input[name=\"content\"]');\n  if (n.content) {\n    if (/<[a-z][\\s\\S]*>/i.test(n.content)) {\n      editor.innerHTML = n.content;\n    } else {\n      editor.innerHTML = n.content.split('\\n').map((l) => `<p>${esc(l) || '<br>'}</p>`).join('');\n    }\n  }\n  box.querySelectorAll('.mne-tool').forEach((btn) => {\n    btn.addEventListener('mousedown', (e) => {\n      e.preventDefault();\n      document.execCommand(btn.dataset.cmd, false, null);\n      editor.focus();\n    });\n  });\n  box.querySelector('#meeting-note-edit-form').addEventListener('submit', async (e) => {\n    e.preventDefault();\n    const htmlContent = editor.innerHTML.trim();\n    if (!htmlContent || htmlContent === '<br>') { toast(t('att.note_content_ph'), 'error'); return; }\n    contentInput.value = htmlContent;\n    const payload = { note_type: n.note_type, content: htmlContent, member_id: memberId };\n    try {\n      await api.put(`/attendance/meetings/${meetingId}/notes/${n.note_id}`, payload);\n      closeModal();\n      toast(t('common.saved'), 'success');\n      router();\n    } catch (err) {\n      toast(err.response?.data?.error || t('common.failed'), 'error');\n    }\n  });\n}\n\n/* ---- prayer requests ---- */\nasync function addPrayerRequest(memberId) {
   openPrayerRequestForm(memberId, null);
 }
 

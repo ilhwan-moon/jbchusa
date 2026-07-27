@@ -483,6 +483,23 @@ att.delete('/meetings/:id', async (c) => {
   return c.json({ ok: true, deleted: rows.results?.length || 0 })
 })
 
+// Member's meeting-linked notes (prayer/testimony)
+att.get('/members/:memberId/meeting-notes', async (c) => {
+  const memberId = parseInt(c.req.param('memberId'), 10)
+  const typeParam = c.req.query('type') // e.g. 'prayer,testimony'
+  const types = typeParam ? typeParam.split(',').map((t) => t.trim()).filter(Boolean) : ['prayer', 'testimony']
+  const placeholders = types.map(() => '?').join(',')
+  const rows = await c.env.DB.prepare(
+    `SELECT mn.note_id, mn.meeting_id, mn.note_type, mn.content, mn.member_id, mn.created_at, mn.updated_at,
+       mt.title AS meeting_title, mt.meeting_date
+     FROM meeting_notes mn
+     JOIN meetings mt ON mn.meeting_id = mt.meeting_id
+     WHERE mn.member_id = ? AND mn.note_type IN (${placeholders})
+     ORDER BY mt.meeting_date DESC, mn.note_id DESC`
+  ).bind(memberId, ...types).all()
+  return c.json({ notes: rows.results })
+})
+
 // Meeting detail + roster (members in group with their attendance status)
 att.get('/meetings/:id', async (c) => {
   const id = parseInt(c.req.param('id'), 10)
@@ -515,7 +532,12 @@ att.get('/meetings/:id', async (c) => {
 
   const [reasons, notes] = await Promise.all([
     c.env.DB.prepare(`SELECT * FROM absence_reasons WHERE is_active=1 ORDER BY sort_order, name`).all(),
-    c.env.DB.prepare(`SELECT * FROM meeting_notes WHERE meeting_id=? ORDER BY created_at DESC, note_id DESC`).bind(id).all(),
+    c.env.DB.prepare(
+      `SELECT mn.*, m.first_name AS member_first_name, m.last_name AS member_last_name, m.korean_name AS member_korean_name
+       FROM meeting_notes mn
+       LEFT JOIN members m ON mn.member_id = m.member_id
+       WHERE mn.meeting_id=? ORDER BY mn.created_at DESC, mn.note_id DESC`
+    ).bind(id).all(),
   ])
 
   return c.json({ meeting, roster: roster.results, absence_reasons: reasons.results, notes: notes.results })
@@ -530,25 +552,27 @@ att.get('/absence-reasons', async (c) => {
 // Meeting notes CRUD
 att.post('/meetings/:id/notes', async (c) => {
   const meetingId = parseInt(c.req.param('id'), 10)
-  const { note_type, content } = await c.req.json<{ note_type: string; content: string }>()
+  const { note_type, content, member_id } = await c.req.json<{ note_type: string; content: string; member_id?: number | null }>()
   if (!note_type || !content) return c.json({ error: '내용이 필요합니다.' }, 400)
   const recorder = (c.get('user') as SessionUser | null)?.user_id || null
-  await c.env.DB.prepare(
-    `INSERT INTO meeting_notes (meeting_id, note_type, content, created_by)
-     VALUES (?, ?, ?, ?)`
-  ).bind(meetingId, note_type, content, recorder).run()
-  return c.json({ ok: true })
+  const linkedMemberId = (note_type === 'prayer' || note_type === 'testimony') ? (member_id || null) : null
+  const res = await c.env.DB.prepare(
+    `INSERT INTO meeting_notes (meeting_id, note_type, content, member_id, created_by)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(meetingId, note_type, content, linkedMemberId, recorder).run()
+  return c.json({ ok: true, note_id: res.meta.last_row_id })
 })
 
 att.put('/meetings/:id/notes/:noteId', async (c) => {
   const meetingId = parseInt(c.req.param('id'), 10)
   const noteId = parseInt(c.req.param('noteId'), 10)
-  const { note_type, content } = await c.req.json<{ note_type: string; content: string }>()
+  const { note_type, content, member_id } = await c.req.json<{ note_type: string; content: string; member_id?: number | null }>()
   if (!note_type || !content) return c.json({ error: '내용이 필요합니다.' }, 400)
+  const linkedMemberId = (note_type === 'prayer' || note_type === 'testimony') ? (member_id || null) : null
   await c.env.DB.prepare(
-    `UPDATE meeting_notes SET note_type=?, content=?, updated_at=datetime('now')
+    `UPDATE meeting_notes SET note_type=?, content=?, member_id=?, updated_at=datetime('now')
      WHERE note_id=? AND meeting_id=?`
-  ).bind(note_type, content, noteId, meetingId).run()
+  ).bind(note_type, content, linkedMemberId, noteId, meetingId).run()
   return c.json({ ok: true })
 })
 

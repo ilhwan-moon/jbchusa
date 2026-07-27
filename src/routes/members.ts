@@ -483,6 +483,33 @@ members.delete('/:id/prayers/:prayerId', async (c) => {
   return c.json({ ok: true })
 })
 
+// ---- Meeting-linked notes (prayer/testimony) for a member ----
+members.get('/:id/meeting-notes', async (c) => {
+  const id = c.req.param('id')
+  const typeParam = c.req.query('type')
+  const types = typeParam ? typeParam.split(',').map((t) => t.trim()).filter(Boolean) : ['prayer', 'testimony']
+  const placeholders = types.map(() => '?').join(',')
+  const rows = await c.env.DB.prepare(
+    `SELECT mn.note_id, mn.meeting_id, mn.note_type, mn.content, mn.member_id, mn.created_at, mn.updated_at,
+       mt.title AS meeting_title, mt.meeting_date
+     FROM meeting_notes mn
+     JOIN meetings mt ON mn.meeting_id = mt.meeting_id
+     WHERE mn.member_id = ? AND mn.note_type IN (${placeholders})
+     ORDER BY mt.meeting_date DESC, mn.note_id DESC`
+  ).bind(id, ...types).all()
+  return c.json({ notes: rows.results })
+})
+
+// Delete a meeting note linked to a member (for member detail page)
+members.delete('/:id/meeting-notes/:noteId', async (c) => {
+  const id = c.req.param('id')
+  const noteId = c.req.param('noteId')
+  await c.env.DB.prepare(
+    `DELETE FROM meeting_notes WHERE note_id=? AND member_id=?`
+  ).bind(noteId, id).run()
+  return c.json({ ok: true })
+})
+
 // ---- Assignments (org membership) ----
 members.post('/:id/assignments', async (c) => {
   const id = c.req.param('id')

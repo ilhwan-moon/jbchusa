@@ -550,6 +550,7 @@ async function attendanceMeeting(content, meetingId) {
   const roster = data.roster || [];
   const notes = data.notes || [];
   window.__absenceReasons = data.absence_reasons || [];
+  window.__currentRoster = roster; // Store for member select in note form
   const canEdit = hasPerm('attendance.edit');
   const canManage = hasPerm('meeting.manage');
 
@@ -602,7 +603,9 @@ function rosterRow(r, canEdit) {
   const reasonLabelText = r.absence_reason_id ? reasonLabel(r.absence_reason_id) : '';
   return `<div class="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100" data-member="${r.member_id}" data-reason="${r.absence_reason_id || ''}">
     ${avatar(r.photo_url, r.first_name, r.last_name, 'w-9 h-9')}
-    <div class="flex-1 min-w-0"><div class="text-sm font-medium text-slate-800 truncate">${esc(name)}</div>${r.title?`<div class="text-xs text-slate-400">${esc(r.title)}</div>`:''}
+    <div class="flex-1 min-w-0">
+      <button onclick="showMemberPopup(${r.member_id})" class="text-sm font-medium text-slate-800 hover:text-brand-600 truncate block text-left w-full">${esc(name)}</button>
+      ${r.title?`<div class="text-xs text-slate-400">${esc(r.title)}</div>`:''}
       ${!canEdit && cur === 'absent' && reasonLabelText ? `<div class="text-xs text-slate-400 mt-1">${t('att.absence_reason')}: ${esc(reasonLabelText)}</div>`:''}
     </div>
     ${canEdit ? `<div class="flex flex-col items-end gap-1">
@@ -657,15 +660,22 @@ function meetingNoteRow(note, canEdit, meetingId) {
   const typeLabel = t('att.note_type_' + note.note_type) || note.note_type;
   const nJson = JSON.stringify(note).replace(/'/g, '&#39;');
   // type badge color
-  const typeBadgeColor = { prayer:'bg-purple-50 text-purple-600', news:'bg-blue-50 text-blue-600', testimony:'bg-amber-50 text-amber-700', other:'bg-slate-100 text-slate-500' };
+  const typeBadgeColor = { prayer:'bg-purple-50 text-purple-600', fellowship:'bg-blue-50 text-blue-600', news:'bg-blue-50 text-blue-600', testimony:'bg-amber-50 text-amber-700', other:'bg-slate-100 text-slate-500' };
   const badgeClass = typeBadgeColor[note.note_type] || typeBadgeColor.other;
   // Render content: if HTML tags detected, render as HTML; else as plain text
   const isHtml = /<[a-z][\s\S]*>/i.test(note.content || '');
   const contentHtml = isHtml ? (note.content || '') : `<p class="whitespace-pre-line">${esc(note.content || '')}</p>`;
+  // Member name for prayer/testimony
+  let memberHtml = '';
+  if ((note.note_type === 'prayer' || note.note_type === 'testimony') && note.member_id) {
+    const memberName = note.member_korean_name || [note.member_first_name, note.member_last_name].filter(Boolean).join(' ');
+    memberHtml = `<button onclick="showMemberPopup(${note.member_id})" class="text-xs text-brand-600 hover:underline font-medium"><i class="fas fa-user mr-1"></i>${esc(memberName)}</button>`;
+  }
   return `<div class="p-4 border border-slate-100 rounded-xl bg-white">
     <div class="flex items-center justify-between mb-2">
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         <span class="badge ${badgeClass} text-xs px-2 py-0.5">${esc(typeLabel)}</span>
+        ${memberHtml}
         <span class="text-xs text-slate-400">${esc((note.created_at||'').slice(0,10))}</span>
       </div>
       ${canEdit?`<div class="flex items-center gap-2">
@@ -687,15 +697,28 @@ function editMeetingNote(meetingId, note) {
 
 function openMeetingNoteForm(meetingId, note) {
   const n = note || {};
-  const typeOptions = ['prayer','news','testimony','other']
+  const typeOptions = ['prayer','fellowship','testimony','other']
     .map((nt)=>`<option value="${nt}" ${n.note_type===nt?'selected':''}>${t('att.note_type_' + nt)}</option>`)
+    .join('');
+  // Get roster members for member selection dropdown
+  const rosterMembers = window.__currentRoster || [];
+  const memberOptions = ['<option value="">' + esc(t('att.note_member_select')) + '</option>']
+    .concat(rosterMembers.map((r) => {
+      const mName = r.korean_name || [r.first_name, r.last_name].filter(Boolean).join(' ');
+      const selected = String(r.member_id) === String(n.member_id || '') ? 'selected' : '';
+      return `<option value="${r.member_id}" ${selected}>${esc(mName)}</option>`;
+    }))
     .join('');
   const box = h(`<div class="p-6 max-h-[85vh] overflow-y-auto">
     <h3 class="text-lg font-bold mb-4">${note?t('att.edit_note'):t('att.add_note')}</h3>
     <form id="note-form" class="space-y-3">
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.note_type')}</label>
-        <select name="note_type" class="w-full px-3 py-2.5 border rounded-lg">${typeOptions}</select>
+        <select id="note-type-sel" name="note_type" class="w-full px-3 py-2.5 border rounded-lg">${typeOptions}</select>
+      </div>
+      <div id="note-member-row" class="hidden">
+        <label class="block text-xs font-semibold text-slate-600 mb-1"><i class="fas fa-user mr-1 text-brand-500"></i>${t('att.note_member')}</label>
+        <select name="member_id" class="w-full px-3 py-2.5 border rounded-lg">${memberOptions}</select>
       </div>
       <div>
         <label class="block text-xs font-semibold text-slate-600 mb-1">${t('att.note_content')}</label>
@@ -726,6 +749,20 @@ function openMeetingNoteForm(meetingId, note) {
     </form>
   </div>`);
   openModal(box, { size:'max-w-xl' });
+
+  // Show/hide member select based on type
+  const noteTypeSel = box.querySelector('#note-type-sel');
+  const memberRow = box.querySelector('#note-member-row');
+  const syncMemberRow = () => {
+    const nt = noteTypeSel.value;
+    if (nt === 'prayer' || nt === 'testimony') {
+      memberRow.classList.remove('hidden');
+    } else {
+      memberRow.classList.add('hidden');
+    }
+  };
+  noteTypeSel.addEventListener('change', syncMemberRow);
+  syncMemberRow();
 
   const editor = box.querySelector('#note-editor');
   const contentInput = box.querySelector('input[name="content"]');
@@ -773,7 +810,9 @@ function openMeetingNoteForm(meetingId, note) {
     }
     contentInput.value = htmlContent;
     const fd = new FormData(e.target);
-    const payload = { note_type: fd.get('note_type'), content: fd.get('content') };
+    const noteType = fd.get('note_type');
+    const memberId = (noteType === 'prayer' || noteType === 'testimony') ? (fd.get('member_id') || null) : null;
+    const payload = { note_type: noteType, content: fd.get('content'), member_id: memberId ? parseInt(memberId, 10) : null };
     try {
       if (note) {
         await api.put(`/attendance/meetings/${meetingId}/notes/${n.note_id}`, payload);
@@ -787,6 +826,72 @@ function openMeetingNoteForm(meetingId, note) {
       toast(err.response?.data?.error || t('common.failed'), 'error');
     }
   });
+}
+
+/* ---- Member popup from roster ---- */
+async function showMemberPopup(memberId) {
+  const box = h(`<div class="p-6 max-h-[90vh] overflow-y-auto" id="member-popup-inner">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-bold text-slate-800">${t('nav.member_detail')}</h3>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fas fa-times"></i></button>
+    </div>
+    <div id="member-popup-content">${loadingHtml()}</div>
+  </div>`);
+  openModal(box, { size: 'max-w-2xl' });
+  try {
+    const { data } = await api.get(`/members/${memberId}`);
+    const m = data.member;
+    const addr = data.address;
+    const name = nativeName(m);
+    const fullAddr = [addr.line1, addr.line2, addr.city, addr.state, addr.zip].filter(Boolean).join(', ');
+    const mapsUrl = fullAddr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddr)}` : null;
+    const contactsHtml = data.contacts.map((ct) => {
+      if (ct.contact_type === 'email') {
+        return `<a href="mailto:${esc(ct.value)}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-sm">
+          <i class="fas fa-envelope w-4 text-brand-600"></i><span class="text-slate-700">${esc(ct.value)}</span></a>`;
+      }
+      const labelMap = { mobile: t('member.contact_mobile'), home: t('member.contact_home'), office: t('member.contact_office') };
+      return `<a href="tel:${esc(ct.value.replace(/[^0-9+]/g, ''))}" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-emerald-50 text-sm">
+        <i class="fas fa-phone w-4 text-emerald-600"></i><span class="text-xs text-slate-400 mr-1">${labelMap[ct.contact_type] || ct.contact_type}</span><span class="text-slate-700">${esc(ct.value)}</span></a>`;
+    }).join('');
+    const assignHtml = data.assignments.map((a) => {
+      return `<div class="flex items-center gap-2 text-sm">
+        <i class="fas fa-sitemap text-slate-400 w-4"></i>
+        <span class="text-slate-700">${esc(a.group_name)}</span>
+        <span class="text-xs text-slate-400">${esc(a.position_name)}</span>
+        ${a.is_primary ? `<span class="badge bg-brand-50 text-brand-700 text-xs">${t('member.primary_affiliation')}</span>` : ''}
+      </div>`;
+    }).join('');
+    const popup = box.querySelector('#member-popup-content');
+    popup.innerHTML = `
+      <div class="flex items-start gap-4 mb-5">
+        <div class="shrink-0">${avatar(m.photo_url, m.first_name, m.last_name, 'w-20 h-20 text-2xl')}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h4 class="text-xl font-bold text-slate-800">${esc(name)}</h4>
+            ${m.title ? `<span class="badge bg-brand-50 text-brand-700">${esc(m.title)}</span>` : ''}
+            ${statusBadge(m.status)}
+          </div>
+          ${m.birth_date ? `<div class="text-xs text-slate-400 mt-1"><i class="fas fa-cake-candles mr-1"></i>${esc(m.birth_date)}${m.gender ? ' · ' + t('gender.' + m.gender) : ''}</div>` : ''}
+          ${data.assignments.length ? `<div class="mt-2 space-y-1">${assignHtml}</div>` : ''}
+        </div>
+      </div>
+      ${(data.contacts.length || fullAddr) ? `
+        <div class="border-t border-slate-100 pt-3 mb-3">
+          <div class="text-xs font-semibold text-slate-500 mb-2">${t('member.contacts_address')}</div>
+          <div class="space-y-1">${contactsHtml}</div>
+          ${fullAddr ? `<a href="${mapsUrl}" target="_blank" class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-blue-50 text-sm mt-1">
+            <i class="fas fa-location-dot w-4 text-blue-600"></i><span class="text-slate-700 text-xs">${esc(fullAddr)}</span></a>` : ''}
+        </div>` : ''}
+      <div class="flex gap-2 pt-2">
+        <a href="#/members/${memberId}" onclick="closeModal()" class="flex-1 py-2 text-center text-sm text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50">
+          <i class="fas fa-external-link-alt mr-1"></i>${t('member.edit_info')}
+        </a>
+      </div>`;
+  } catch (err) {
+    const popup = box.querySelector('#member-popup-content');
+    if (popup) popup.innerHTML = `<div class="text-sm text-red-500 p-4">${t('common.error_occurred')} ${err.message || ''}</div>`;
+  }
 }
 
 async function deleteMeetingNote(meetingId, noteId) {
