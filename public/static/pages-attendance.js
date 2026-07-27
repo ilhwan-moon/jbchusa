@@ -839,7 +839,11 @@ async function showMemberPopup(memberId) {
   </div>`);
   openModal(box, { size: 'max-w-2xl' });
   try {
-    const { data } = await api.get(`/members/${memberId}`);
+    const [{ data }, { data: mnData }, { data: attData }] = await Promise.all([
+      api.get(`/members/${memberId}`),
+      api.get(`/members/${memberId}/meeting-notes`, { params: { type: 'prayer,testimony' } }).catch(() => ({ data: { notes: [] } })),
+      api.get(`/members/${memberId}/attendance`, { params: { limit: 30 } }).catch(() => ({ data: { stats: null, records: [] } })),
+    ]);
     const m = data.member;
     const addr = data.address;
     const name = nativeName(m);
@@ -1008,12 +1012,144 @@ async function showMemberPopup(memberId) {
         <div class="flex flex-wrap gap-1">${langsHtml}</div>
       </div>` : ''}
 
+      <!-- 출석 현황 -->
+      <div class="mt-4" id="popup-att-root"></div>
+
+      <!-- 기도부탁 · 간증 -->
+      <div class="mt-4" id="popup-pt-root"></div>
+
       <!-- 성도 상세 페이지 이동 버튼 -->
       <div class="flex gap-2 mt-5 pt-4 border-t border-slate-100">
         <a href="#/members/${memberId}" onclick="closeModal()" class="flex-1 py-2.5 text-center text-sm text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50 font-medium">
           <i class="fas fa-external-link-alt mr-1.5"></i>${t('member.open_detail')}
         </a>
       </div>`;
+
+    // ---- 출석현황 렌더 (팝업 전용 인라인) ----
+    const attRoot = box.querySelector('#popup-att-root');
+    if (attRoot) {
+      const stats   = attData?.stats   || {};
+      const records = attData?.records || [];
+      const attStyle = {
+        present: { color:'text-emerald-600', bg:'bg-emerald-50', border:'border-emerald-200', icon:'fa-circle-check' },
+        online:  { color:'text-sky-600',     bg:'bg-sky-50',     border:'border-sky-200',    icon:'fa-wifi' },
+        late:    { color:'text-amber-600',   bg:'bg-amber-50',   border:'border-amber-200',  icon:'fa-clock' },
+        excused: { color:'text-violet-600',  bg:'bg-violet-50',  border:'border-violet-200', icon:'fa-circle-exclamation' },
+        absent:  { color:'text-red-500',     bg:'bg-red-50',     border:'border-red-200',    icon:'fa-circle-xmark' },
+      };
+      const attBadge = (status) => {
+        const s = attStyle[status] || attStyle.absent;
+        return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded-full ${s.bg} ${s.color} border ${s.border}">
+          <i class="fas ${s.icon} text-xs"></i>${t('st.' + status) || status}</span>`;
+      };
+
+      if (!stats.total) {
+        attRoot.innerHTML = `
+          <div class="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1">
+            <i class="fas fa-calendar-check text-emerald-500"></i>${t('member.attendance_section')}
+          </div>
+          <p class="text-xs text-slate-400">${t('member.att_no_records')}</p>`;
+      } else {
+        const presentCount = (stats.present_count||0)+(stats.online_count||0)+(stats.late_count||0);
+        const rate = stats.total > 0 ? Math.round((presentCount / stats.total) * 100) : 0;
+        const rateColor = rate>=80?'text-emerald-600':rate>=60?'text-amber-600':'text-red-500';
+        const rateBarColor = rate>=80?'bg-emerald-500':rate>=60?'bg-amber-400':'bg-red-400';
+        const recentSlice = records.slice(0, 10);
+        attRoot.innerHTML = `
+          <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+            <i class="fas fa-calendar-check text-emerald-500"></i>${t('member.attendance_section')}
+          </div>
+          <!-- 요약 바 -->
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <div class="flex gap-3 text-xs flex-wrap flex-1">
+              <span class="text-slate-500">${t('member.att_total')} <b class="text-slate-700">${stats.total}</b></span>
+              <span class="text-emerald-600">${t('member.att_present')} <b>${presentCount}</b></span>
+              <span class="text-red-500">${t('member.att_absent')} <b>${stats.absent_count||0}</b></span>
+              ${stats.excused_count ? `<span class="text-violet-600">${t('member.att_excused')} <b>${stats.excused_count}</b></span>` : ''}
+            </div>
+            <span class="text-sm font-bold ${rateColor} shrink-0">${rate}%</span>
+          </div>
+          <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-3">
+            <div class="${rateBarColor} h-full rounded-full" style="width:${rate}%"></div>
+          </div>
+          <!-- 최근 10회 목록 -->
+          <div class="space-y-0 divide-y divide-slate-50">
+            ${recentSlice.map((r) => `
+              <div class="flex items-center gap-2 py-1.5">
+                <div class="text-xs text-slate-400 w-20 shrink-0">${esc(r.meeting_date)}</div>
+                <div class="flex-1 min-w-0 text-xs text-slate-600 truncate">${esc(r.meeting_title)}</div>
+                <div class="shrink-0">${attBadge(r.status)}</div>
+              </div>`).join('')}
+          </div>
+          ${records.length > 10 ? `<p class="text-xs text-slate-400 mt-1 text-right">${t('member.open_detail')}에서 전체 ${records.length}건 확인</p>` : ''}`;
+      }
+    }
+
+    // ---- 기도부탁 · 간증 렌더 (팝업 전용 인라인) ----
+    const ptRoot = box.querySelector('#popup-pt-root');
+    if (ptRoot) {
+      const allNotes = mnData?.notes || [];
+      const standalonePrayers = data.prayers || [];
+      const standaloneTestimonies = data.testimonies || [];
+
+      // 기도부탁: standalone + meeting-linked
+      const prayers = [
+        ...standalonePrayers.map((p) => ({ _type:'standalone', _date: p.prayer_date||'', ...p })),
+        ...allNotes.filter((n) => n.note_type==='prayer').map((n) => ({ _type:'meeting', _date:(n.meeting_date||'').slice(0,10), ...n })),
+      ].sort((a,b) => b._date > a._date ? 1 : b._date < a._date ? -1 : 0);
+
+      const testimonies = [
+        ...standaloneTestimonies.map((p) => ({ _type:'standalone', _date: p.prayer_date||'', ...p })),
+        ...allNotes.filter((n) => n.note_type==='testimony').map((n) => ({ _type:'meeting', _date:(n.meeting_date||'').slice(0,10), ...n })),
+      ].sort((a,b) => b._date > a._date ? 1 : b._date < a._date ? -1 : 0);
+
+      const renderPTItem = (item, type) => {
+        const date = item._date || item.prayer_date || '';
+        const content = item.content || '';
+        const source  = item._type === 'meeting'
+          ? `<span class="text-xs text-brand-400"><i class="fas fa-people-roof mr-0.5"></i>${esc(item.meeting_title||'')}</span>`
+          : `<span class="text-xs text-slate-400">${t('member.direct_register')||'직접등록'}</span>`;
+        const icon = type === 'prayer' ? 'fa-hands-praying text-brand-400' : 'fa-star text-amber-400';
+        return `<div class="py-2 border-b border-slate-50 last:border-0">
+          <div class="flex items-center gap-2 mb-1">
+            <i class="fas ${icon} text-xs"></i>
+            <span class="text-xs text-slate-400">${esc(date)}</span>
+            ${source}
+          </div>
+          <p class="text-xs text-slate-700 line-clamp-3 leading-relaxed">${esc(content)}</p>
+        </div>`;
+      };
+
+      const hasPrayers = prayers.length > 0;
+      const hasTestimonies = testimonies.length > 0;
+
+      if (!hasPrayers && !hasTestimonies) {
+        ptRoot.innerHTML = '';
+      } else {
+        ptRoot.innerHTML = `
+          <div class="text-xs font-semibold text-slate-500 mb-2 flex items-center gap-1">
+            <i class="fas fa-hands-praying text-brand-400"></i>${t('member.prayers_testimonies')}
+          </div>
+          ${hasPrayers ? `
+            <div class="mb-3">
+              <div class="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                <i class="fas fa-hands-praying text-brand-300 text-xs"></i>${t('member.prayer_requests')}
+                <span class="text-slate-400">(${prayers.length})</span>
+              </div>
+              <div>${prayers.slice(0,3).map((p) => renderPTItem(p,'prayer')).join('')}</div>
+              ${prayers.length > 3 ? `<p class="text-xs text-slate-400 mt-1">+ ${prayers.length-3}건 더...</p>` : ''}
+            </div>` : ''}
+          ${hasTestimonies ? `
+            <div>
+              <div class="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                <i class="fas fa-star text-amber-300 text-xs"></i>${t('member.testimonies')}
+                <span class="text-slate-400">(${testimonies.length})</span>
+              </div>
+              <div>${testimonies.slice(0,3).map((p) => renderPTItem(p,'testimony')).join('')}</div>
+              ${testimonies.length > 3 ? `<p class="text-xs text-slate-400 mt-1">+ ${testimonies.length-3}건 더...</p>` : ''}
+            </div>` : ''}`;
+      }
+    }
   } catch (err) {
     const popup = box.querySelector('#member-popup-content');
     if (popup) popup.innerHTML = `<div class="text-sm text-red-500 p-4">${t('common.error_occurred')} ${err.message || ''}</div>`;

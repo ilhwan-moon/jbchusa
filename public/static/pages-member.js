@@ -3,9 +3,10 @@
  * ============================================================ */
 Pages.memberDetail = async function (content, memberId) {
   content.innerHTML = loadingHtml();
-  const [{ data }, { data: mnData }] = await Promise.all([
+  const [{ data }, { data: mnData }, { data: attData }] = await Promise.all([
     api.get(`/members/${memberId}`),
     api.get(`/members/${memberId}/meeting-notes`, { params: { type: 'prayer,testimony' } }).catch(() => ({ data: { notes: [] } })),
+    api.get(`/members/${memberId}/attendance`, { params: { limit: 60 } }).catch(() => ({ data: { stats: null, records: [] } })),
   ]);
   const m = data.member;
   const addr = data.address;
@@ -137,6 +138,13 @@ Pages.memberDetail = async function (content, memberId) {
           <div id="testimony-paged-root"></div>
         </div>
 
+        <div class="card p-5" id="attendance-section-card">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-slate-700"><i class="fas fa-calendar-check text-emerald-500 mr-2"></i>${t('member.attendance_section')}</h3>
+          </div>
+          <div id="attendance-summary-root"></div>
+        </div>
+
         ${m.note?`<div class="card p-5"><h3 class="font-bold text-slate-700 mb-2"><i class="fas fa-note-sticky text-brand-500 mr-2"></i>${t('member.note')}</h3><p class="text-sm text-slate-600 whitespace-pre-line">${esc(m.note)}</p></div>`:''}
       </div>
     </div>`;
@@ -150,6 +158,8 @@ Pages.memberDetail = async function (content, memberId) {
     emptyHtml: `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>`,
     noResultHtml: `<div class="text-sm text-slate-400">${t('common.no_results')}</div>`,
   });
+
+  renderAttendanceSection('attendance-summary-root', attData);
 };
 
 /* ---- photo upload (resize client-side, store as data URL) ---- */
@@ -947,6 +957,102 @@ async function deletePrayerRequest(memberId, prayerId) {
   } catch (err) {
     toast(err.response?.data?.error || t('common.failed'), 'error');
   }
+}
+
+/* ---- Attendance Section Renderer ---- */
+function renderAttendanceSection(rootId, attData) {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+
+  const stats   = attData?.stats   || {};
+  const records = attData?.records || [];
+
+  // 상태별 색상/아이콘
+  const attStyle = {
+    present:  { color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-200', icon: 'fa-circle-check' },
+    online:   { color: 'text-sky-600',     bg: 'bg-sky-50',      border: 'border-sky-200',     icon: 'fa-wifi' },
+    late:     { color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-200',   icon: 'fa-clock' },
+    excused:  { color: 'text-violet-600',  bg: 'bg-violet-50',   border: 'border-violet-200',  icon: 'fa-circle-exclamation' },
+    absent:   { color: 'text-red-500',     bg: 'bg-red-50',      border: 'border-red-200',     icon: 'fa-circle-xmark' },
+  };
+
+  function attBadge(status) {
+    const s = attStyle[status] || attStyle.absent;
+    const label = t('st.' + status) || status;
+    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${s.bg} ${s.color} border ${s.border}">
+      <i class="fas ${s.icon} text-xs"></i>${label}
+    </span>`;
+  }
+
+  if (!stats.total) {
+    root.innerHTML = `<p class="text-sm text-slate-400">${t('member.att_no_records')}</p>`;
+    return;
+  }
+
+  // 출석률 계산 (present + online + late)
+  const presentCount = (stats.present_count || 0) + (stats.online_count || 0) + (stats.late_count || 0);
+  const rate = stats.total > 0 ? Math.round((presentCount / stats.total) * 100) : 0;
+  const rateColor = rate >= 80 ? 'text-emerald-600' : rate >= 60 ? 'text-amber-600' : 'text-red-500';
+  const rateBarColor = rate >= 80 ? 'bg-emerald-500' : rate >= 60 ? 'bg-amber-400' : 'bg-red-400';
+
+  // 요약 카드
+  const statCards = [
+    { key: 'total',   val: stats.total || 0,          label: t('member.att_total'),   icon: 'fa-calendar', color: 'text-slate-600', bg: 'bg-slate-50' },
+    { key: 'present', val: presentCount,              label: t('member.att_present'), icon: 'fa-circle-check', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { key: 'absent',  val: stats.absent_count || 0,   label: t('member.att_absent'),  icon: 'fa-circle-xmark', color: 'text-red-500', bg: 'bg-red-50' },
+    { key: 'excused', val: stats.excused_count || 0,  label: t('member.att_excused'), icon: 'fa-circle-exclamation', color: 'text-violet-600', bg: 'bg-violet-50' },
+  ].map((c) => `
+    <div class="flex flex-col items-center justify-center p-3 rounded-xl ${c.bg}">
+      <i class="fas ${c.icon} ${c.color} text-sm mb-1"></i>
+      <div class="text-lg font-bold ${c.color}">${c.val}</div>
+      <div class="text-xs text-slate-400 mt-0.5">${c.label}</div>
+    </div>`).join('');
+
+  // 이력 목록 (최근 30건 기본, 더보기로 전체)
+  let showAll = false;
+  const PAGE = 30;
+
+  function buildList(all) {
+    const slice = all ? records : records.slice(0, PAGE);
+    if (!slice.length) return `<p class="text-sm text-slate-400">${t('member.att_no_records')}</p>`;
+    return slice.map((r) => {
+      const s = attStyle[r.status] || attStyle.absent;
+      const mtype = t('mtype.' + r.meeting_type) || r.meeting_type || '';
+      return `<div class="flex items-center gap-3 py-2 border-b border-slate-50 last:border-0">
+        <div class="text-xs text-slate-400 w-20 shrink-0">${esc(r.meeting_date)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-slate-700 truncate font-medium">${esc(r.meeting_title)}</div>
+          <div class="text-xs text-slate-400 truncate">${esc(r.group_name)}${mtype ? ' · ' + esc(mtype) : ''}</div>
+        </div>
+        <div class="shrink-0">${attBadge(r.status)}</div>
+        ${r.absence_reason ? `<div class="text-xs text-slate-400 shrink-0 max-w-[4rem] truncate">${esc(r.absence_reason)}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  root.innerHTML = `
+    <!-- 통계 카드 -->
+    <div class="grid grid-cols-4 gap-2 mb-4">${statCards}</div>
+    <!-- 출석률 바 -->
+    <div class="flex items-center gap-3 mb-4 px-1">
+      <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+        <div class="${rateBarColor} h-full rounded-full transition-all" style="width:${rate}%"></div>
+      </div>
+      <span class="text-sm font-bold ${rateColor} w-10 text-right">${rate}%</span>
+      <span class="text-xs text-slate-400">${t('member.att_rate')}</span>
+    </div>
+    <!-- 이력 목록 -->
+    <div class="text-xs font-semibold text-slate-500 mb-2">${t('member.att_recent')}</div>
+    <div id="att-list-inner">${buildList(false)}</div>
+    ${records.length > PAGE ? `<button id="att-load-more" class="mt-3 text-xs text-brand-600 hover:underline font-medium">
+      <i class="fas fa-chevron-down mr-1"></i>${t('member.att_load_more')} (${records.length - PAGE}${t('common.items_count').replace('{n}', '').trim()})
+    </button>` : ''}`;
+
+  document.getElementById('att-load-more')?.addEventListener('click', function () {
+    showAll = true;
+    document.getElementById('att-list-inner').innerHTML = buildList(true);
+    this.remove();
+  });
 }
 
 /* ---- delete a member ---- */

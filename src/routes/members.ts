@@ -544,6 +544,46 @@ members.delete('/:id/meeting-notes/:noteId', async (c) => {
   return c.json({ ok: true })
 })
 
+// ---- Attendance history for a member ----
+members.get('/:id/attendance', async (c) => {
+  const id = c.req.param('id')
+  const limit = parseInt(c.req.query('limit') || '60', 10)
+
+  // 전체 통계
+  const stats = await c.env.DB.prepare(
+    `SELECT
+       COUNT(*) AS total,
+       SUM(CASE WHEN a.status IN ('present','online','late') THEN 1 ELSE 0 END) AS present_count,
+       SUM(CASE WHEN a.status = 'absent'  THEN 1 ELSE 0 END) AS absent_count,
+       SUM(CASE WHEN a.status = 'excused' THEN 1 ELSE 0 END) AS excused_count,
+       SUM(CASE WHEN a.status = 'online'  THEN 1 ELSE 0 END) AS online_count,
+       SUM(CASE WHEN a.status = 'late'    THEN 1 ELSE 0 END) AS late_count
+     FROM attendances a
+     JOIN meetings mt ON a.meeting_id = mt.meeting_id
+     WHERE a.member_id = ?`
+  ).bind(id).first<any>()
+
+  // 최근 출석 이력 (모임별)
+  const rows = await c.env.DB.prepare(
+    `SELECT a.attendance_id, a.status, a.note, a.absence_reason_id,
+       mt.meeting_id, mt.title AS meeting_title, mt.meeting_date, mt.meeting_type,
+       g.name AS group_name,
+       ar.name AS absence_reason
+     FROM attendances a
+     JOIN meetings mt ON a.meeting_id = mt.meeting_id
+     JOIN org_groups g ON mt.group_id = g.group_id
+     LEFT JOIN absence_reasons ar ON a.absence_reason_id = ar.reason_id
+     WHERE a.member_id = ?
+     ORDER BY mt.meeting_date DESC, mt.meeting_id DESC
+     LIMIT ?`
+  ).bind(id, limit).all()
+
+  return c.json({
+    stats: stats || { total: 0, present_count: 0, absent_count: 0, excused_count: 0, online_count: 0, late_count: 0 },
+    records: rows.results,
+  })
+})
+
 // ---- Assignments (org membership) ----
 members.post('/:id/assignments', async (c) => {
   const id = c.req.param('id')
