@@ -63,77 +63,11 @@ Pages.memberDetail = async function (content, memberId) {
     ...meetingPrayers.map((n) => ({ _type: 'meeting', _date: (n.meeting_date || '').slice(0, 10), ...n })),
   ].sort((a, b) => (b._date > a._date ? 1 : b._date < a._date ? -1 : 0));
 
-  // Build unified prayer HTML (consistent card style for both types)
-  const allPrayerHtml = allPrayerItems.map((item) => {
-    if (item._type === 'meeting') {
-      return buildMeetingNoteItem(item, memberId, canEdit);
-    }
-    // Standalone prayer — same card layout as meeting-linked
-    const p = item;
-    const pId = `pr-${p.prayer_id}`;
-    const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
-    const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
-    const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
-    return `
-    <div class="p-3 rounded-lg border border-slate-100" id="prayer-item-${p.prayer_id}">
-      <div class="flex items-start justify-between mb-2">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <button onclick="togglePrayerContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
-            <i class="fas fa-chevron-down" id="prayer-chevron-${pId}"></i>
-          </button>
-          ${canEdit ? `<button onclick='editPrayerRequest(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
-          <button onclick='deletePrayerRequest(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
-        </div>
-      </div>
-      <div id="prayer-content-${pId}" class="hidden">
-        <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
-      </div>
-    </div>
-  `;
-  }).join('');
-
   // Merge standalone testimonies + meeting-linked testimonies, sorted by date desc
   const allTestimonyItems = [
     ...standaloneTestimonies.map((p) => ({ _type: 'standalone', _date: p.prayer_date || '', ...p })),
     ...meetingTestimonies.map((n) => ({ _type: 'meeting', _date: (n.meeting_date || '').slice(0, 10), ...n })),
   ].sort((a, b) => (b._date > a._date ? 1 : b._date < a._date ? -1 : 0));
-
-  // Build unified testimony HTML
-  const allTestimonyHtml = allTestimonyItems.map((item) => {
-    if (item._type === 'meeting') {
-      return buildMeetingNoteItem(item, memberId, canEdit);
-    }
-    const p = item;
-    const pId = `ts-${p.prayer_id}`;
-    const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
-    const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
-    const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
-    return `
-    <div class="p-3 rounded-lg border border-slate-100" id="testimony-item-${p.prayer_id}">
-      <div class="flex items-start justify-between mb-2">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <button onclick="toggleTestimonyContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
-            <i class="fas fa-chevron-down" id="testimony-chevron-${pId}"></i>
-          </button>
-          ${canEdit ? `<button onclick='editTestimony(${m.member_id}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
-          <button onclick='deleteTestimony(${m.member_id}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
-        </div>
-      </div>
-      <div id="testimony-content-${pId}" class="hidden">
-        <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
-      </div>
-    </div>
-  `;
-  }).join('');
-
-  const hasPrayers = allPrayerItems.length > 0;
-  const hasTestimonies = allTestimonyItems.length > 0;
 
   content.innerHTML = `
     <div class="mb-4"><a href="javascript:history.back()" class="text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-arrow-left mr-1"></i>${t('common.back')}</a></div>
@@ -186,31 +120,35 @@ Pages.memberDetail = async function (content, memberId) {
           ${m.household_id?`<a href="#/households/${m.household_id}" class="mt-3 inline-block text-sm text-slate-500 hover:text-brand-600"><i class="fas fa-house-user mr-1"></i>${t('member.view_household')}</a>`:''}
         </div>
 
-        <div class="card p-5">
+        <div class="card p-5" id="prayer-section-card">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-slate-700"><i class="fas fa-hands-praying text-brand-500 mr-2"></i>${t('member.prayer_requests')}</h3>
             ${canEdit?`<button onclick="addPrayerRequest(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_prayer')}</button>`:''}
           </div>
-          <div class="space-y-3">
-            ${allPrayerHtml}
-            ${!hasPrayers ? `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>` : ''}
-          </div>
+          <div id="prayer-paged-root"></div>
         </div>
 
-        <div class="card p-5">
+        <div class="card p-5" id="testimony-section-card">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-slate-700"><i class="fas fa-star text-amber-500 mr-2"></i>${t('member.testimonies')}</h3>
             ${canEdit ? `<button onclick="addTestimony(${m.member_id})" class="text-sm text-brand-600 font-medium"><i class="fas fa-plus mr-1"></i>${t('member.add_testimony')}</button>` : ''}
           </div>
-          <div class="space-y-3">
-            ${allTestimonyHtml}
-            ${!hasTestimonies ? `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>` : ''}
-          </div>
+          <div id="testimony-paged-root"></div>
         </div>
 
         ${m.note?`<div class="card p-5"><h3 class="font-bold text-slate-700 mb-2"><i class="fas fa-note-sticky text-brand-500 mr-2"></i>${t('member.note')}</h3><p class="text-sm text-slate-600 whitespace-pre-line">${esc(m.note)}</p></div>`:''}
       </div>
     </div>`;
+
+  // ---- init paged sections after DOM is ready ----
+  initPagedSection('prayer-paged-root', allPrayerItems, (item) => buildPrayerItem(item, m.member_id, canEdit), {
+    emptyHtml: `<div class="text-sm text-slate-400">${t('member.no_prayers')}</div>`,
+    noResultHtml: `<div class="text-sm text-slate-400">${t('common.no_results')}</div>`,
+  });
+  initPagedSection('testimony-paged-root', allTestimonyItems, (item) => buildTestimonyItem(item, m.member_id, canEdit), {
+    emptyHtml: `<div class="text-sm text-slate-400">${t('member.no_testimonies')}</div>`,
+    noResultHtml: `<div class="text-sm text-slate-400">${t('common.no_results')}</div>`,
+  });
 };
 
 /* ---- photo upload (resize client-side, store as data URL) ---- */
@@ -472,6 +410,158 @@ async function editMember(memberId) {
       location.hash = `#/members/${memberId}`; router();
     } catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
+}
+
+/* ---- Paged section utility (search + pagination) ---- */
+const PAGE_SIZE = 5;
+
+function initPagedSection(rootId, items, renderFn, opts = {}) {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+
+  let query = '';
+  let page  = 1;
+
+  function getTextContent(item) {
+    // Strip HTML tags for search
+    const raw = (item.content || '').replace(/<[^>]+>/g, ' ');
+    const date = item._date || '';
+    const title = item.meeting_title || '';
+    return (raw + ' ' + date + ' ' + title).toLowerCase();
+  }
+
+  function filtered() {
+    if (!query) return items;
+    const q = query.toLowerCase();
+    return items.filter((item) => getTextContent(item).includes(q));
+  }
+
+  function render() {
+    const list = filtered();
+    const total = list.length;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (page > totalPages) page = totalPages;
+    const start = (page - 1) * PAGE_SIZE;
+    const slice = list.slice(start, start + PAGE_SIZE);
+
+    const itemsHtml = slice.length
+      ? slice.map(renderFn).join('')
+      : (query ? (opts.noResultHtml || '') : (opts.emptyHtml || ''));
+
+    const pageLabel = t('common.page_of')
+      .replace('{cur}', page).replace('{total}', totalPages);
+    const countLabel = t('common.items_count').replace('{n}', total);
+
+    const pagerHtml = total > PAGE_SIZE ? `
+      <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+        <span class="text-xs text-slate-400">${countLabel}</span>
+        <div class="flex items-center gap-1">
+          <button id="${rootId}-prev" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page <= 1 ? 'disabled' : ''}>
+            <i class="fas fa-chevron-left"></i> ${t('common.prev')}
+          </button>
+          <span class="text-xs text-slate-500 px-2">${pageLabel}</span>
+          <button id="${rootId}-next" class="px-2 py-1 text-xs rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" ${page >= totalPages ? 'disabled' : ''}>
+            ${t('common.next')} <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>` : (total > 0 ? `<div class="mt-2 text-right"><span class="text-xs text-slate-400">${countLabel}</span></div>` : '');
+
+    root.innerHTML = `
+      <div class="mb-2">
+        <div class="relative">
+          <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+          <input id="${rootId}-search" type="text" value="${esc(query)}"
+            placeholder="${esc(t('common.search_ph'))}"
+            class="w-full pl-7 pr-7 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 bg-white" />
+          ${query ? `<button id="${rootId}-clear" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"><i class="fas fa-times"></i></button>` : ''}
+        </div>
+      </div>
+      <div class="space-y-3">${itemsHtml}</div>
+      ${pagerHtml}`;
+
+    // Bind events
+    const searchEl = document.getElementById(`${rootId}-search`);
+    if (searchEl) {
+      searchEl.addEventListener('input', (e) => {
+        query = e.target.value;
+        page = 1;
+        render();
+        // Re-focus after re-render with cursor at end
+        const el2 = document.getElementById(`${rootId}-search`);
+        if (el2) { el2.focus(); const len = el2.value.length; el2.setSelectionRange(len, len); }
+      });
+    }
+    const clearEl = document.getElementById(`${rootId}-clear`);
+    if (clearEl) {
+      clearEl.addEventListener('click', () => { query = ''; page = 1; render(); });
+    }
+    const prevEl = document.getElementById(`${rootId}-prev`);
+    if (prevEl) {
+      prevEl.addEventListener('click', () => { if (page > 1) { page--; render(); } });
+    }
+    const nextEl = document.getElementById(`${rootId}-next`);
+    if (nextEl) {
+      nextEl.addEventListener('click', () => { if (page < totalPages) { page++; render(); } });
+    }
+  }
+
+  render();
+}
+
+/* ---- Prayer item renderer ---- */
+function buildPrayerItem(item, memberId, canEdit) {
+  if (item._type === 'meeting') return buildMeetingNoteItem(item, memberId, canEdit);
+  const p = item;
+  const pId = `pr-${p.prayer_id}`;
+  const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
+  const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
+  const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
+  return `
+  <div class="p-3 rounded-lg border border-slate-100" id="prayer-item-${p.prayer_id}">
+    <div class="flex items-start justify-between mb-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button onclick="togglePrayerContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
+          <i class="fas fa-chevron-down" id="prayer-chevron-${pId}"></i>
+        </button>
+        ${canEdit ? `<button onclick='editPrayerRequest(${memberId}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+        <button onclick='deletePrayerRequest(${memberId}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
+      </div>
+    </div>
+    <div id="prayer-content-${pId}" class="hidden">
+      <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
+    </div>
+  </div>`;
+}
+
+/* ---- Testimony item renderer ---- */
+function buildTestimonyItem(item, memberId, canEdit) {
+  if (item._type === 'meeting') return buildMeetingNoteItem(item, memberId, canEdit);
+  const p = item;
+  const pId = `ts-${p.prayer_id}`;
+  const pJson = JSON.stringify(p).replace(/'/g, '&#39;');
+  const isHtml = /<[a-z][\s\S]*>/i.test(p.content || '');
+  const contentHtml = isHtml ? (p.content || '') : `<p class="whitespace-pre-line">${esc(p.content || '')}</p>`;
+  return `
+  <div class="p-3 rounded-lg border border-slate-100" id="testimony-item-${p.prayer_id}">
+    <div class="flex items-start justify-between mb-2">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs font-medium text-brand-600"><i class="fas fa-calendar-alt mr-1"></i>${esc(p.prayer_date || '')}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button onclick="toggleTestimonyContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
+          <i class="fas fa-chevron-down" id="testimony-chevron-${pId}"></i>
+        </button>
+        ${canEdit ? `<button onclick='editTestimony(${memberId}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
+        <button onclick='deleteTestimony(${memberId}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
+      </div>
+    </div>
+    <div id="testimony-content-${pId}" class="hidden">
+      <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
+    </div>
+  </div>`;
 }
 
 /* ---- Meeting-linked note item renderer (prayer / testimony) ---- */

@@ -64,6 +64,14 @@
       'common.no_permission': '접근 권한이 없습니다.',
       'common.failed': '실패',
       'common.saved': '저장되었습니다.',
+      'common.prev': '이전',
+      'common.next': '다음',
+      'common.page_of': '{cur} / {total} 페이지',
+      'common.items_count': '전체 {n}건',
+      'common.no_results': '검색 결과가 없습니다.',
+      'common.search_ph': '내용 검색...',
+      'common.clear': '지우기',
+
       'common.deleted': '삭제되었습니다.',
       'common.processing_image': '이미지 처리 중...',
 
@@ -607,6 +615,14 @@
       'common.no_permission': 'You do not have access.',
       'common.failed': 'Failed',
       'common.saved': 'Saved.',
+      'common.prev': 'Prev',
+      'common.next': 'Next',
+      'common.page_of': '{cur} / {total}',
+      'common.items_count': '{n} items',
+      'common.no_results': 'No results found.',
+      'common.search_ph': 'Search content...',
+      'common.clear': 'Clear',
+
       'common.deleted': 'Deleted.',
       'common.processing_image': 'Processing image...',
 
@@ -1137,6 +1153,14 @@
       'common.no_permission': 'No tiene acceso.',
       'common.failed': 'Error',
       'common.saved': 'Guardado.',
+      'common.prev': 'Anterior',
+      'common.next': 'Siguiente',
+      'common.page_of': '{cur} / {total}',
+      'common.items_count': '{n} elementos',
+      'common.no_results': 'Sin resultados.',
+      'common.search_ph': 'Buscar contenido...',
+      'common.clear': 'Limpiar',
+
       'common.deleted': 'Eliminado.',
       'common.processing_image': 'Procesando imagen...',
 
