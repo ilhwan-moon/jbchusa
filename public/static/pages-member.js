@@ -524,13 +524,13 @@ function buildPrayerItem(item, memberId, canEdit) {
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <button onclick="togglePrayerContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
-          <i class="fas fa-chevron-down" id="prayer-chevron-${pId}"></i>
+          <i class="fas fa-chevron-up" id="prayer-chevron-${pId}"></i>
         </button>
         ${canEdit ? `<button onclick='editPrayerRequest(${memberId}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
         <button onclick='deletePrayerRequest(${memberId}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
       </div>
     </div>
-    <div id="prayer-content-${pId}" class="hidden">
+    <div id="prayer-content-${pId}">
       <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
     </div>
   </div>`;
@@ -552,13 +552,13 @@ function buildTestimonyItem(item, memberId, canEdit) {
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <button onclick="toggleTestimonyContent('${pId}')" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
-          <i class="fas fa-chevron-down" id="testimony-chevron-${pId}"></i>
+          <i class="fas fa-chevron-up" id="testimony-chevron-${pId}"></i>
         </button>
         ${canEdit ? `<button onclick='editTestimony(${memberId}, ${pJson})' class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
         <button onclick='deleteTestimony(${memberId}, ${p.prayer_id})' class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
       </div>
     </div>
-    <div id="testimony-content-${pId}" class="hidden">
+    <div id="testimony-content-${pId}">
       <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
     </div>
   </div>`;
@@ -582,13 +582,13 @@ function buildMeetingNoteItem(n, memberId, canEdit) {
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button onclick="toggleMeetingNoteContent(${noteId})" class="text-xs text-slate-400 hover:text-brand-600 px-2 py-0.5 rounded border border-slate-200 hover:border-brand-200">
-            <i class="fas fa-chevron-down" id="meeting-note-chevron-${noteId}"></i>
+            <i class="fas fa-chevron-up" id="meeting-note-chevron-${noteId}"></i>
           </button>
           ${canEdit ? `<button onclick="editMeetingLinkedNote(${memberId}, ${nJson})" class="text-slate-400 hover:text-brand-600" title="${t('common.edit')}"><i class="fas fa-pen text-xs"></i></button>
           <button onclick="deleteMeetingLinkedNote(${memberId}, ${noteId})" class="text-slate-400 hover:text-red-500" title="${t('common.delete')}"><i class="fas fa-trash text-xs"></i></button>` : ''}
         </div>
       </div>
-      <div id="meeting-note-content-${noteId}" class="hidden">
+      <div id="meeting-note-content-${noteId}">
         <div class="text-sm text-slate-700 prose prose-sm max-w-none mt-2 pt-2 border-t border-slate-100">${contentHtml}</div>
       </div>
     </div>
