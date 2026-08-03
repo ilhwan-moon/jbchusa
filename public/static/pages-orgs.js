@@ -79,6 +79,15 @@ async function loadGroupMembers(groupId, cat) {
   const grouped = {};
   members.forEach((m) => { (grouped[m.position_type] = grouped[m.position_type] || []).push(m); });
 
+  // sort members by name within each group
+  Object.keys(grouped).forEach((pt) => {
+    grouped[pt].sort((a, b) => {
+      const nameA = nativeName(a);
+      const nameB = nativeName(b);
+      return nameA.localeCompare(nameB, 'ko-KR');
+    });
+  });
+
   const canManage = hasPerm('org.manage');
   box.innerHTML = `
     <div class="flex items-start justify-between mb-4 pb-3 border-b border-slate-100">
@@ -92,6 +101,7 @@ async function loadGroupMembers(groupId, cat) {
         <button onclick='deleteOrgGroup(${g.group_id}, ${JSON.stringify(g.name)}, ${JSON.stringify(g.category_code)})' title="${t('common.delete')}" class="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-500"><i class="fas fa-trash text-xs"></i></button>`:''}
       </div>
     </div>
+    ${groupStatsHtml(members)}
     ${members.length===0 ? `<div class="text-center text-slate-400 py-12"><i class="fas fa-user-slash text-2xl mb-2"></i><p>${t('orgs.no_members')}</p></div>`
       : order.filter((pt)=>grouped[pt]).map((pt) => `
         <div class="mb-4">
@@ -101,6 +111,15 @@ async function loadGroupMembers(groupId, cat) {
           </div>
         </div>`).join('')}
   `;
+}
+
+/* ---- gender / member-type breakdown for the members of a group ---- */
+function groupStatsHtml(members) {
+  return `
+    <div class="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-100">
+      <div class="text-xs font-bold text-slate-400 uppercase mb-2">${t('orgs.stats_title')}</div>
+      <div class="flex flex-wrap gap-2">${memberStatsBadgesHtml(members)}</div>
+    </div>`;
 }
 
 function memberCardHtml(m) {
@@ -197,7 +216,7 @@ async function orgGroupForm(categoryCode, defaults, editing) {
 
 /* ---- delete (soft) an org group ---- */
 async function deleteOrgGroup(groupId, name, categoryCode) {
-  if (!confirm(t('orgs.del_confirm', { name }))) return;
+  if (!(await confirmDialog(t('orgs.del_confirm', { name })))) return;
   try {
     await api.delete(`/admin/groups/${groupId}`);
     toast(t('orgs.deleted'), 'success');

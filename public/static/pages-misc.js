@@ -99,8 +99,16 @@ Pages.addressbook = async function (content) {
     const { data } = await api.get('/members', { params: { q, status } });
     const list = el('ab-list');
     if (!data.members.length) { list.innerHTML = `<div class="card p-12 text-center text-slate-400"><i class="fas fa-user-slash text-2xl mb-2"></i><p>${t('ab.no_members')}</p></div>`; return; }
-    list.innerHTML = `<div class="text-xs text-slate-400 mb-2 px-1">${data.members.length}${t('common.people_unit')}</div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${data.members.map(abCard).join('')}</div>`;
+
+    // Sort members by name
+    const sortedMembers = data.members.sort((a, b) => {
+      const nameA = nativeName(a);
+      const nameB = nativeName(b);
+      return nameA.localeCompare(nameB, 'ko-KR');
+    });
+
+    list.innerHTML = `<div class="text-xs text-slate-400 mb-2 px-1">${sortedMembers.length}${t('common.people_unit')}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">${sortedMembers.map(abCard).join('')}</div>`;
   }
   function abCard(m) {
     const name = nativeName(m);
