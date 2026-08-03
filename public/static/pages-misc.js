@@ -34,6 +34,11 @@ Pages.dashboard = async function (content) {
       ${statCard(t('dash.orgs'),'fa-sitemap','text-amber-600', (cats.categories||[]).length)}
     </div>
 
+    <div class="card p-5 mb-6">
+      <h3 class="font-bold text-slate-700 mb-3">${t('dash.member_stats')}</h3>
+      <div class="flex flex-wrap gap-2">${memberStatsBadgesHtml(mem.members || [])}</div>
+    </div>
+
     <h3 class="font-bold text-slate-700 mb-3">${t('dash.org_shortcuts')}</h3>
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">${catCards}</div>
 
@@ -117,7 +122,8 @@ Pages.addressbook = async function (content) {
 const ADDRESSBOOK_COLUMNS = [
   { key: 'first_name', label: 'First Name', required: true },
   { key: 'last_name', label: 'Last Name', required: true },
-  { key: 'korean_name', label: 'Korean Name' },
+  { key: 'korean_last_name', label: 'Korean Last Name' },
+  { key: 'korean_first_name', label: 'Korean First Name' },
   { key: 'preferred_name', label: 'Preferred Name' },
   { key: 'gender', label: 'Gender (M/F)' },
   { key: 'title', label: 'Title' },
@@ -127,7 +133,7 @@ const ADDRESSBOOK_COLUMNS = [
   { key: 'birth_date', label: 'Birth Date (YYYY-MM-DD)' },
   { key: 'organizations', label: 'Organizations' },
   { key: 'positions', label: 'Positions' },
-  { key: 'mobile', label: 'Mobile' },
+  { key: 'mobile', label: 'Mobile Phone' },
   { key: 'email', label: 'Email' },
   { key: 'home', label: 'Home Phone' },
   { key: 'office', label: 'Office Phone' },
@@ -186,7 +192,7 @@ async function downloadAddressbookTemplate() {
   try {
     const header = ADDRESSBOOK_COLUMNS.map((c) => c.key);
     const labels = ADDRESSBOOK_COLUMNS.map((c) => `${c.label}${c.required ? ' *' : ''}`);
-    const example = ['John','Doe','홍길동','John','M','집사','활동','성도','봉사자','1990-01-01','청년부','집사','010-1234-5678','john@example.com','','','123 Street','Apt 101','Los Angeles','CA','90001','메모'];
+    const example = ['John','Doe','홍','길동','John','M','Deacon','Active','Member','Volunteer','1990-01-01','Youth Ministry','Deacon','(555) 123-4567','john@example.com','(555) 987-6543','(555) 456-7890','123 Main Street','Apt 101','Los Angeles','CA','90001','Sample note'];
     const ws = XLSX.utils.aoa_to_sheet([header, labels, example]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
@@ -279,10 +285,11 @@ Pages.account = async function (content) {
             <input name="current_password" type="password" required class="w-full px-3 py-2.5 border rounded-lg" />
           </div>
           <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.new_password')}</label>
-            <input name="new_password" type="password" required minlength="6" class="w-full px-3 py-2.5 border rounded-lg" />
+            <input name="new_password" type="password" required minlength="8" class="w-full px-3 py-2.5 border rounded-lg" />
+            <p class="text-xs text-slate-400 mt-1">${t('auth.password_min')}</p>
           </div>
           <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('account.confirm_password')}</label>
-            <input name="confirm_password" type="password" required minlength="6" class="w-full px-3 py-2.5 border rounded-lg" />
+            <input name="confirm_password" type="password" required minlength="8" class="w-full px-3 py-2.5 border rounded-lg" />
           </div>
           <div class="flex justify-end"><button type="submit" class="px-4 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('account.change_password')}</button></div>
         </form>
@@ -513,7 +520,7 @@ async function addMemberToHousehold(hhId) {
   });
 }
 async function removeFromHousehold(hhId, memberId) {
-  if (!confirm(t('hh.remove_confirm'))) return;
+  if (!(await confirmDialog(t('hh.remove_confirm')))) return;
   await api.delete(`/households/${hhId}/members/${memberId}`);
   toast(t('hh.removed'), 'success'); router();
 }
@@ -592,7 +599,8 @@ async function createUser() {
       <input name="display_name" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_name_ph')}" />
       <input name="username" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_id_ph')}" />
       <input name="email" type="email" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_email_ph')}" />
-      <input name="password" type="password" required class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_pw_ph')}" />
+      <input name="password" type="password" required minlength="8" class="w-full px-3 py-2.5 border rounded-lg" placeholder="${t('admin.user_pw_ph')}" />
+      <p class="text-xs text-slate-400 -mt-2">${t('auth.password_min')}</p>
       <select name="role_id" class="w-full px-3 py-2.5 border rounded-lg">${roleOpts}</select>
       <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.add')}</button></div>
     </form></div>`);
@@ -622,7 +630,7 @@ async function editUserRoles(userId) {
   });
 }
 async function resetUserPw(userId) {
-  const pw = prompt(t('admin.new_pw_prompt')); if (!pw) return;
+  const pw = prompt(t('admin.new_pw_prompt') + '\n' + t('auth.password_min')); if (!pw) return;
   try { await api.put(`/admin/users/${userId}/password`, { password: pw }); toast(t('admin.pw_changed'), 'success'); }
   catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
 }
@@ -637,7 +645,7 @@ async function toggleUser(userId, active) {
 }
 
 async function deleteUser(userId, name) {
-  if (!confirm(t('admin.user_delete_confirm', { name }))) return;
+  if (!(await confirmDialog(t('admin.user_delete_confirm', { name })))) return;
   try {
     await api.delete(`/admin/users/${userId}`);
     toast(t('admin.user_deleted'), 'success');
@@ -693,7 +701,7 @@ async function editPosition(positionId) {
       closeModal(); toast(t('common.saved'), 'success'); router(); } catch (err) { toast(t('common.failed'), 'error'); }
   });
 }
-async function delPosition(id) { if (!confirm(t('admin.del_confirm'))) return; await api.delete(`/admin/positions/${id}`); toast(t('admin.deleted'),'success'); router(); }
+async function delPosition(id) { if (!(await confirmDialog(t('admin.del_confirm')))) return; await api.delete(`/admin/positions/${id}`); toast(t('admin.deleted'),'success'); router(); }
 
 function metaListHtml(items, idKey, editFn, deleteFn) {
   if (!items || !items.length) {
@@ -787,7 +795,7 @@ function editMemberType(typeId) {
 }
 
 async function delMemberType(typeId) {
-  if (!confirm(t('admin.del_confirm'))) return;
+  if (!(await confirmDialog(t('admin.del_confirm')))) return;
   await api.delete(`/admin/member-types/${typeId}`);
   toast(t('admin.deleted'), 'success');
   router();
@@ -825,7 +833,7 @@ function editEmploymentType(typeId) {
 }
 
 async function delEmploymentType(typeId) {
-  if (!confirm(t('admin.del_confirm'))) return;
+  if (!(await confirmDialog(t('admin.del_confirm')))) return;
   await api.delete(`/admin/employment-types/${typeId}`);
   toast(t('admin.deleted'), 'success');
   router();
@@ -863,7 +871,7 @@ function editMemberStatus(statusId) {
 }
 
 async function delMemberStatus(statusId) {
-  if (!confirm(t('admin.del_confirm'))) return;
+  if (!(await confirmDialog(t('admin.del_confirm')))) return;
   await api.delete(`/admin/member-statuses/${statusId}`);
   toast(t('admin.deleted'), 'success');
   router();
@@ -935,7 +943,7 @@ function editAbsenceReason(reasonId) {
 }
 
 async function delAbsenceReason(reasonId) {
-  if (!confirm(t('admin.del_confirm'))) return;
+  if (!(await confirmDialog(t('admin.del_confirm')))) return;
   await api.delete(`/admin/absence-reasons/${reasonId}`);
   toast(t('admin.deleted'), 'success');
   router();
@@ -1112,4 +1120,4 @@ function editGroup(groupId) {
     catch (err) { toast(err.response?.data?.error || t('common.failed'), 'error'); }
   });
 }
-async function delGroup(id) { if (!confirm(t('admin.deactivate_confirm'))) return; await api.delete(`/admin/groups/${id}`); toast(t('admin.processed'),'success'); router(); }
+async function delGroup(id) { if (!(await confirmDialog(t('admin.deactivate_confirm')))) return; await api.delete(`/admin/groups/${id}`); toast(t('admin.processed'),'success'); router(); }
