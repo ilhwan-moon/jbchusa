@@ -100,8 +100,15 @@ Pages.addressbook = async function (content) {
     const list = el('ab-list');
     if (!data.members.length) { list.innerHTML = `<div class="card p-12 text-center text-slate-400"><i class="fas fa-user-slash text-2xl mb-2"></i><p>${t('ab.no_members')}</p></div>`; return; }
 
-    // Sort members by name
+    // Sort members by name (Korean names first, then English names)
     const sortedMembers = data.members.sort((a, b) => {
+      const hasKoreanA = (a.korean_last_name || a.korean_first_name || a.korean_name) ? 1 : 0;
+      const hasKoreanB = (b.korean_last_name || b.korean_first_name || b.korean_name) ? 1 : 0;
+
+      // If one has Korean name and the other doesn't, Korean name comes first
+      if (hasKoreanA !== hasKoreanB) return hasKoreanB - hasKoreanA;
+
+      // Both have Korean or both don't have Korean, sort by name
       const nameA = nativeName(a);
       const nameB = nativeName(b);
       return nameA.localeCompare(nameB, 'ko-KR');

@@ -79,9 +79,16 @@ async function loadGroupMembers(groupId, cat) {
   const grouped = {};
   members.forEach((m) => { (grouped[m.position_type] = grouped[m.position_type] || []).push(m); });
 
-  // sort members by name within each group
+  // sort members by name within each group (Korean names first, then English names)
   Object.keys(grouped).forEach((pt) => {
     grouped[pt].sort((a, b) => {
+      const hasKoreanA = (a.korean_last_name || a.korean_first_name || a.korean_name) ? 1 : 0;
+      const hasKoreanB = (b.korean_last_name || b.korean_first_name || b.korean_name) ? 1 : 0;
+
+      // If one has Korean name and the other doesn't, Korean name comes first
+      if (hasKoreanA !== hasKoreanB) return hasKoreanB - hasKoreanA;
+
+      // Both have Korean or both don't have Korean, sort by name
       const nameA = nativeName(a);
       const nameB = nativeName(b);
       return nameA.localeCompare(nameB, 'ko-KR');
