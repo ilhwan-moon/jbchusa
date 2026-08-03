@@ -12,6 +12,7 @@ Pages.memberDetail = async function (content, memberId) {
   const addr = data.address;
   const name = nativeName(m);
   const canEdit = hasPerm('member.edit');
+  const canDelete = hasPerm('member.delete');
   const meetingNotes = mnData.notes || [];
   const standaloneTestimonies = data.testimonies || [];
 
@@ -76,7 +77,7 @@ Pages.memberDetail = async function (content, memberId) {
       <!-- Profile -->
       <div class="card p-6 text-center">
         <div class="relative inline-block">
-          <div id="photo-holder">${avatar(m.photo_url, m.first_name, m.last_name, 'w-28 h-28 mx-auto text-3xl')}</div>
+          <div id="photo-holder" class="cursor-pointer hover:opacity-75 transition-opacity" onclick="viewPhotoModal('${m.photo_url || ''}', '${esc(name)}')">${avatar(m.photo_url, m.first_name, m.last_name, 'w-28 h-28 mx-auto text-3xl')}</div>
           ${canEdit?`<button onclick="document.getElementById('photo-input').click()" class="absolute bottom-0 right-0 w-8 h-8 bg-brand-600 text-white rounded-full flex items-center justify-center shadow hover:bg-brand-700"><i class="fas fa-camera text-xs"></i></button>
           <input type="file" id="photo-input" accept="image/*" class="hidden" onchange="uploadPhoto(${m.member_id}, this)" />`:''}
         </div>
@@ -88,8 +89,8 @@ Pages.memberDetail = async function (content, memberId) {
           ${m.member_type?`<span class="badge bg-slate-100 text-slate-600">${esc(metaLabel('memberTypes', m.member_type) || m.member_type)}</span>`:''}
         </div>
         ${langHtml?`<div class="mt-3">${langHtml}</div>`:''}
-        ${canEdit?`<button onclick="editMember(${m.member_id})" class="mt-4 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"><i class="fas fa-pen mr-1"></i>${t('member.edit_info')}</button>
-        <button onclick='deleteMember(${m.member_id}, ${JSON.stringify(name)})' class="mt-2 w-full py-2 rounded-lg border border-red-200 text-sm text-red-500 hover:bg-red-50"><i class="fas fa-trash mr-1"></i>${t('member.delete')}</button>`:''}
+        ${canEdit?`<button onclick="editMember(${m.member_id})" class="mt-4 w-full py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"><i class="fas fa-pen mr-1"></i>${t('member.edit_info')}</button>`:''}
+        ${canDelete?`<button onclick='deleteMember(${m.member_id}, ${JSON.stringify(name)})' class="mt-2 w-full py-2 rounded-lg border border-red-200 text-sm text-red-500 hover:bg-red-50"><i class="fas fa-trash mr-1"></i>${t('member.delete')}</button>`:''}
       </div>
 
       <!-- Details -->
@@ -162,6 +163,16 @@ Pages.memberDetail = async function (content, memberId) {
   renderAttendanceSection('attendance-summary-root', attData);
 };
 
+/* ---- view photo in modal ---- */
+function viewPhotoModal(photoUrl, memberName) {
+  if (!photoUrl) return;
+  const box = h(`<div class="p-6 text-center">
+    <img src="${photoUrl}" class="max-w-full max-h-[70vh] rounded-lg mx-auto" />
+    <div class="mt-4 text-sm text-slate-600">${esc(memberName)}</div>
+  </div>`);
+  openModal(box, { size: 'max-w-2xl' });
+}
+
 /* ---- photo upload (resize client-side, store as data URL) ---- */
 async function uploadPhoto(memberId, input) {
   const file = input.files[0]; if (!file) return;
@@ -228,7 +239,7 @@ async function addRelationship(memberId) {
 }
 
 async function deleteRelationship(relId, memberId) {
-  if (!confirm(t('member.del_relationship_confirm'))) return;
+  if (!(await confirmDialog(t('member.del_relationship_confirm')))) return;
   await api.delete(`/members/relationships/${relId}`);
   toast(t('common.deleted'), 'success'); router();
 }
@@ -260,7 +271,7 @@ async function addAssignment(memberId) {
   });
 }
 async function deleteAssignment(asgId, memberId) {
-  if (!confirm(t('member.del_affiliation_confirm'))) return;
+  if (!(await confirmDialog(t('member.del_affiliation_confirm')))) return;
   await api.delete(`/members/assignments/${asgId}`);
   toast(t('common.deleted'), 'success'); router();
 }
@@ -361,11 +372,11 @@ async function editMember(memberId) {
       </div>
       <div class="pt-2 border-t border-slate-100">
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_mobile')}</label><input name="mobile" value="${esc(contactValue('mobile'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
-          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_home')}</label><input name="home" value="${esc(contactValue('home'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_mobile')}</label><input name="mobile" value="${esc(contactValue('mobile'))}" placeholder="(555) 123-4567" maxlength="14" class="w-full px-3 py-2 border rounded-lg phone-input" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_home')}</label><input name="home" value="${esc(contactValue('home'))}" placeholder="(555) 123-4567" maxlength="14" class="w-full px-3 py-2 border rounded-lg phone-input" /></div>
         </div>
         <div class="grid grid-cols-2 gap-3 mt-3">
-          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_office')}</label><input name="office" value="${esc(contactValue('office'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_office')}</label><input name="office" value="${esc(contactValue('office'))}" placeholder="(555) 123-4567" maxlength="14" class="w-full px-3 py-2 border rounded-lg phone-input" /></div>
           <div><label class="block text-xs font-semibold text-slate-600 mb-1">${t('member.contact_email')}</label><input type="email" name="email" value="${esc(contactValue('email'))}" class="w-full px-3 py-2 border rounded-lg" /></div>
         </div>
       </div>
@@ -385,6 +396,24 @@ async function editMember(memberId) {
       <div class="flex gap-2 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-2.5 border rounded-lg text-slate-600">${t('common.cancel')}</button><button type="submit" class="flex-1 py-2.5 bg-brand-600 text-white rounded-lg font-semibold">${t('common.save')}</button></div>
     </form></div>`);
   openModal(box, { size:'max-w-xl' });
+
+  // Add phone number formatting (US format: (123) 456-7890)
+  box.querySelectorAll('.phone-input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      let val = e.target.value.replace(/[^0-9]/g, '');
+      if (val.length > 10) val = val.slice(0, 10);
+      if (val.length === 0) {
+        e.target.value = '';
+      } else if (val.length <= 3) {
+        e.target.value = '(' + val;
+      } else if (val.length <= 6) {
+        e.target.value = '(' + val.slice(0, 3) + ') ' + val.slice(3);
+      } else {
+        e.target.value = '(' + val.slice(0, 3) + ') ' + val.slice(3, 6) + '-' + val.slice(6);
+      }
+    });
+  });
+
   const addressFields = {
     line1: box.querySelector('[name="address_line1"]'),
     line2: box.querySelector('[name="address_line2"]'),
@@ -678,7 +707,7 @@ async function editTestimony(memberId, testimony) {
 }
 
 async function deleteTestimony(memberId, testimonyId) {
-  if (!confirm(t('member.testimony_delete_confirm'))) return;
+  if (!(await confirmDialog(t('member.testimony_delete_confirm')))) return;
   try {
     await api.delete(`/members/${memberId}/testimonies/${testimonyId}`);
     toast(t('member.testimony_deleted'), 'success');
@@ -775,7 +804,7 @@ function openTestimonyForm(memberId, testimony) {
 
 async function deleteMeetingLinkedNote(memberId, noteId) {
   const confirmMsg = t('att.note_delete_confirm');
-  if (!confirm(confirmMsg)) return;
+  if (!(await confirmDialog(confirmMsg))) return;
   try {
     await api.delete(`/members/${memberId}/meeting-notes/${noteId}`);
     toast(t('common.deleted'), 'success');
@@ -949,7 +978,7 @@ function openPrayerRequestForm(memberId, prayer) {
 }
 
 async function deletePrayerRequest(memberId, prayerId) {
-  if (!confirm(t('member.prayer_delete_confirm'))) return;
+  if (!(await confirmDialog(t('member.prayer_delete_confirm')))) return;
   try {
     await api.delete(`/members/${memberId}/prayers/${prayerId}`);
     toast(t('common.deleted'), 'success');
@@ -1057,7 +1086,7 @@ function renderAttendanceSection(rootId, attData) {
 
 /* ---- delete a member ---- */
 async function deleteMember(memberId, name) {
-  if (!confirm(t('member.del_confirm', { name }))) return;
+  if (!(await confirmDialog(t('member.del_confirm', { name })))) return;
   try {
     await api.delete(`/members/${memberId}`);
     toast(t('member.deleted'), 'success');
